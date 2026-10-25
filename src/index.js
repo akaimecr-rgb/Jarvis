@@ -95,7 +95,20 @@ var log=document.getElementById("log"),btn=document.getElementById("btn"),cember
 var sifre=null;try{sifre=localStorage.getItem("jarvis_sifre")}catch(e){}
 if(!sifre){sifre=prompt("Jarvis sifresi:")||"";try{localStorage.setItem("jarvis_sifre",sifre)}catch(e){}}
 function ekle(s,t){var d=document.createElement("div");d.className=s;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight}
-function konus(t){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.onstart=function(){cember.classList.add("aktif")};u.onend=function(){cember.classList.remove("aktif")};speechSynthesis.cancel();speechSynthesis.speak(u)}
+var oynatici=null;
+function tarayiciSesi(t){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.15;u.onstart=function(){cember.classList.add("aktif")};u.onend=function(){cember.classList.remove("aktif")};speechSynthesis.cancel();speechSynthesis.speak(u)}
+async function konus(t){
+  try{
+    var r=await fetch("/ses",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({metin:t})});
+    if(!r.ok)throw new Error("ses");
+    var b=await r.blob();
+    if(oynatici){oynatici.pause()}
+    oynatici=new Audio(URL.createObjectURL(b));
+    oynatici.onplay=function(){cember.classList.add("aktif")};
+    oynatici.onended=function(){cember.classList.remove("aktif")};
+    await oynatici.play();
+  }catch(e){tarayiciSesi(t)}
+}
 async function gonder(metin,sesli){
   if(!metin.trim())return;
   ekle("sen","Sen: "+metin);
@@ -239,11 +252,63 @@ function komut(metin) {
   return null;
 }
 
+// ---------------- Jarvis sesi (Gemini TTS) ----------------
+function wavYap(pcm, hz) {
+  const h = new ArrayBuffer(44), v = new DataView(h);
+  const yaz = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  yaz(0, "RIFF"); v.setUint32(4, 36 + pcm.length, true); yaz(8, "WAVE"); yaz(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, hz, true); v.setUint32(28, hz * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  yaz(36, "data"); v.setUint32(40, pcm.length, true);
+  const out = new Uint8Array(44 + pcm.length); out.set(new Uint8Array(h), 0); out.set(pcm, 44);
+  return out;
+}
+
+async function sesUret(env, metin) {
+  const model = env.TTS_MODEL || "gemini-2.5-flash-preview-tts";
+  const tarz = env.SES_TARZI ||
+    "Sakin, derin, kendinden emin ve kibar bir yapay zeka asistani gibi, biraz hizli ve akici konus: ";
+  const r = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: tarz + metin }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: env.SES_ADI || "Charon" } } },
+        },
+      }),
+    }
+  );
+  if (!r.ok) throw new Error("TTS " + r.status);
+  const j = await r.json();
+  const p = j.candidates?.[0]?.content?.parts?.find((x) => x.inlineData);
+  if (!p) throw new Error("TTS bos");
+  const bin = atob(p.inlineData.data);
+  const pcm = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const hz = parseInt((p.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || "24000");
+  return wavYap(pcm, hz);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (request.method === "POST" && url.pathname === "/ses") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      try {
+        const { metin = "" } = await request.json();
+        const wav = await sesUret(env, metin.slice(0, 1500));
+        return new Response(wav, { headers: { "content-type": "audio/wav" } });
+      } catch (e) {
+        return new Response(e.message, { status: 502 });
+      }
     }
     if (request.method === "POST" && url.pathname === "/sohbet") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
