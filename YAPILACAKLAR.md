@@ -20,6 +20,12 @@
 - Sabah alarmi: her gun 08:30'da Jarvis sesiyle yuksek sesle "Songul Hanim, Eren'i uyandir" desin, "uyandim" deyince dursun. Eren "yarin yapma" dedigi gunler calmasin.
 - Sonra: ayni ozellikler Windows laptop icin kucuk bir program olarak.
 - Web sayfasina da butonsuz konusma modu eklenecek.
+- Uygulamaya eklenecekler (Eren hepsini istedi):
+  1. Bildirim okuma: Discord'dan musteri mesaji gelince sesli soylesin, Ingilizceyse Turkce cevirisini okusun.
+  2. Is cikisi ozeti: "isten ciktim" deyince yeni ilanlar, biten kurgular, bekleyen mesajlar.
+  3. Sesli not: "Jarvis, not al: ..." ve aksam notlari okuma.
+  4. Paylas-kurgula: telefondaki videoyu Paylas > Jarvis ile gonderip "GKey stiliyle kurgula".
+  5. Hatirlaticilar: "yarin 12'de teslim var, 11'de hatirlat".
 
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
