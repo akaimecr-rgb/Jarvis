@@ -282,7 +282,9 @@ async function kurgula(env, metin) {
   const video = linkler.find((l) => !l.includes("/folders/"));
   if (!video) return "Video linkini de yaz. Örnek: kurgula shorts <video linki> malzeme <klasör linki>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
+  const stil = ((metin.match(/(?:stil|müşteri|musteri)\s+([a-z0-9-]+)/i) || [])[1] || "").toLowerCase();
   const talimat = metin
+    .replace(/(?:stil|müşteri|musteri)\s+[a-z0-9-]+/i, "")
     .replace(/https?:\/\/\S+/g, "")
     .replace(/^\s*kurgula\s*/i, "")
     .replace(/\b(shorts|uzun|malzeme)\b/gi, "")
@@ -291,7 +293,7 @@ async function kurgula(env, metin) {
     .slice(0, 500);
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/dispatches`, {
     method: "POST",
-    body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, talimat, plan: "" } }),
+    body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, talimat, stil, plan: "" } }),
   });
   return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
@@ -300,11 +302,46 @@ async function stilCikar(env, metin) {
   const linkler = metin.match(/https?:\/\/\S+/g) || [];
   if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
+  const ad = ((metin.match(/\bad\s+([a-z0-9-]+)/i) || [])[1] || "").toLowerCase();
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/stil.yml/dispatches`, {
     method: "POST",
-    body: JSON.stringify({ ref: "main", inputs: { format, linkler: linkler.join(" ") } }),
+    body: JSON.stringify({ ref: "main", inputs: { format, ad, linkler: linkler.join(" ") } }),
   });
   return `${linkler.length} örnek videodan ${format} stilini çıkarıyorum. 5-10 dakika sürer. Bitince bundan sonraki kurgular bu stille yapılır.`;
+}
+
+async function digerDosya(env, repo, yol) {
+  const j = await gh(env, `/repos/${repo}/contents/${yol}`);
+  return b64Coz(j.content);
+}
+
+async function ilanlar(env) {
+  const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
+  if (!liste.length) return "Henüz uygun ilan bulamadım. İlan avı 2 saatte bir çalışıyor; 'ilan ara' dersen hemen ararım.";
+  await kvYaz(env, "son_ilanlar", liste.slice(0, 10));
+  return (
+    liste.slice(0, 5).map((d, i) => `${i + 1}) ${d.ozet} Bütçe: ${d.butce}. Puan ${d.puan}/10. Stil adı: ${d.slug}.`).join(" ") +
+    " Başvuru için 'başvuru yaz' ve numarasını söyle."
+  );
+}
+
+async function basvuruYaz(env, metin) {
+  const n = parseInt((metin.match(/\d+/) || ["1"])[0]);
+  const liste = await kvOku(env, "son_ilanlar", []);
+  const d = liste[n - 1];
+  if (!d) return "Önce 'ilanlar' de, sonra numarayla başvuru iste.";
+  const sistem = "Eren icin Reddit ilanina basvuru mesaji yaziyorsun. Eren video editoru: Shorts/TikTok/Reels, Valorant ve oyun videolari, " +
+    "psikoloji/egitim Shorts'u, uzun YouTube videolari; Remotion ile hizli teslim. Mesaj kisa, samimi, profesyonel, ilana ozel olsun; " +
+    "abartili iddia ve uydurma referans yazma. Once INGILIZCE mesaj, sonra '---', sonra Turkce cevirisi.";
+  const c = await sorGemini(env, sistem, [{ role: "user", content: "ILAN: " + d.baslik + "\n" + d.metin }], MODELLER(env).sohbet);
+  return { cevap: c, link: d.link };
+}
+
+async function ilanAra(env) {
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/ilan-avi.yml/dispatches`, {
+    method: "POST", body: JSON.stringify({ ref: "main" }),
+  });
+  return "İlan aramayı başlattım. 3-5 dakika sonra 'ilanlar' de.";
 }
 
 async function kurguDurumu(env) {
@@ -324,6 +361,9 @@ function komut(metin) {
   if (m.startsWith("kod:") || m.startsWith("kendine ")) return "kod";
   if (m.startsWith("kurgula")) return "kurgula";
   if (m.startsWith("stil çıkar") || m.startsWith("stil cikar")) return "stil";
+  if (m === "ilanlar" || m === "yeni ilanlar" || m.includes("ilan var mı")) return "ilanlar";
+  if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
+  if (m === "ilan ara") return "ilan_ara";
   if (m.includes("kurgu durumu")) return "kurgu_durumu";
   return null;
 }
@@ -574,6 +614,12 @@ export default {
           else if (k === "kod") c = await kodIstegi(env, metin.replace(/^kod:\s*/i, ""));
           else if (k === "kurgula") c = await kurgula(env, metin);
           else if (k === "stil") c = await stilCikar(env, metin);
+          else if (k === "ilanlar") c = await ilanlar(env);
+          else if (k === "ilan_ara") c = await ilanAra(env);
+          else if (k === "basvuru") {
+            const b = await basvuruYaz(env, metin);
+            return Response.json(typeof b === "string" ? { cevap: b, beyin: "sistem" } : { ...b, beyin: "sistem" });
+          }
           else if (k === "kurgu_durumu") {
             const d = await kurguDurumu(env);
             return Response.json({ cevap: typeof d === "string" ? d : d.cevap, link: d.link, beyin: "sistem" });

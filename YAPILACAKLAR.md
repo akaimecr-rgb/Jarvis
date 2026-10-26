@@ -7,8 +7,16 @@
 3. Test: "stil çıkar shorts" + 3 ornek Shorts linki. 10 dakika bekle.
 4. Test: "kurgula shorts" + 1 dakikalik bir ham video linki, sonra "kurgu durumu".
 
+## Hazir olan komutlar (anahtarlar eklenince calisir)
+- "ilanlar": Reddit'te bulunan uygun editor ilanlari (2 saatte bir otomatik taranir). "ilan ara": hemen tara.
+- "başvuru yaz 1": 1 numarali ilana Ingilizce basvuru + Turkce ceviri.
+- Her uygun ilan icin musteri stil dosyasi otomatik olusur (ad = stil adi).
+- "kurgula shorts <link> müşteri <stil adı> <istekler>": o musterinin stiliyle kurgula.
+- "stil çıkar shorts ad <isim> <ornek linkler>": ornek videolardan isimli stil dosyasi.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
-- Ilan avi: Reddit'teki video editor ilanlarini (r/forhire, r/HireAnEditor vb.) duzenli tarayip uygun olanlari Turkce ozetlemek ve Ingilizce basvuru mesaji (Turkce cevirisiyle) hazirlamak. Discord: sadece botun eklendigi sunucular.
+- Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
+- Ilanlardaki ornek video linklerinden otomatik stil cikarma.
 - Malzeme klasorundeki muzik ve logoyu kurguya otomatik yerlestirmek.
 - Para kazanmaya baslayinca kod yazmayi Claude API'ye gecirmek.

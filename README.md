@@ -10,6 +10,8 @@ Cloudflare Worker (`jarviss`). Bu depodaki `src/index.js` degisince Cloudflare o
 - `geri al` → son kod degisikligini geri alir
 - `kurgula shorts <Drive linki>` veya `kurgula uzun <link>` → bulutta render
 - `stil çıkar shorts <link1> <link2> <link3>` → ornek videolardan stil cikarir
+- `ilanlar`, `ilan ara`, `başvuru yaz <n>` → Reddit ilan avi
+- `kurgula ... müşteri <ad>` → musteri stiliyle
 - `kurgu durumu` → son render'in durumu ve linki
 
 ## Cloudflare ayarlari
