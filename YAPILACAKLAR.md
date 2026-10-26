@@ -14,6 +14,13 @@
 - "kurgula shorts <link> müşteri <stil adı> <istekler>": o musterinin stiliyle kurgula.
 - "stil çıkar shorts ad <isim> <ornek linkler>": ornek videolardan isimli stil dosyasi.
 
+## Telefon uygulamasi (Eren'in telefonu acilinca yapilacak)
+- Android uygulamasi (APK'yi GitHub derler): telefon kilitliyken bile "Jarvis" deyince Jarvis ekrani acilsin (Picovoice ucretsiz anahtar gerekli).
+- Buton yok: "Jarvis" dedikten sonra surekli dinlesin, Eren susunca cevap versin, tekrar dinlesin; "tamam ben kapatiyorum" deyince birakip tekrar "Jarvis"i beklesin.
+- Sabah alarmi: her gun 08:30'da Jarvis sesiyle yuksek sesle "Songul Hanim, Eren'i uyandir" desin, "uyandim" deyince dursun. Eren "yarin yapma" dedigi gunler calmasin.
+- Sonra: ayni ozellikler Windows laptop icin kucuk bir program olarak.
+- Web sayfasina da butonsuz konusma modu eklenecek.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
