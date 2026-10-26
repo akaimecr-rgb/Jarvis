@@ -1,0 +1,52 @@
+name: Android Uygulamasi
+
+on:
+  push:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: APK derle
+        run: |
+          set -o pipefail
+          gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+      - name: APK'yi yayinla
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jarvis-app-${{ github.run_number }}
+          name: Jarvis uygulamasi (surum ${{ github.run_number }})
+          body: "Telefonda bu sayfadan jarvis.apk dosyasini indirip kur."
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
+      - name: Derleme kaydini yaz
+        if: always()
+        run: |
+          cp /tmp/build.log /tmp/kayit.log 2>/dev/null || echo "kayit yok" > /tmp/kayit.log
+          echo "SONUC: ${{ job.status }} run=${{ github.run_number }}" >> /tmp/kayit.log
+          git config user.name "jarvis-bot"
+          git config user.email "jarvis-bot@users.noreply.github.com"
+          git switch --orphan build-log
+          git rm -rq --cached . || true
+          tail -c 60000 /tmp/kayit.log > build.log
+          git add build.log
+          git commit -qm "Derleme kaydi ${{ github.run_number }}"
+          git push -qf origin build-log

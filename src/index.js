@@ -105,7 +105,8 @@ body{margin:0;background:#05080f;color:#e6f1ff;font-family:system-ui,sans-serif;
 <div id="alt"><input id="yazi" placeholder="Yaz veya mikrofona bas"><button id="gonder">&#10148;</button><button id="btn">Mik</button></div>
 <script>
 var log=document.getElementById("log"),btn=document.getElementById("btn"),cember=document.getElementById("cember"),yazi=document.getElementById("yazi");
-var sifre=null;try{sifre=localStorage.getItem("jarvis_sifre")}catch(e){}
+var sifre=null;try{if(window.Android&&Android.sifre)sifre=Android.sifre()||null}catch(e){}
+if(!sifre){try{sifre=localStorage.getItem("jarvis_sifre")}catch(e){}}
 if(!sifre){sifre=prompt("Jarvis sifresi:")||"";try{localStorage.setItem("jarvis_sifre",sifre)}catch(e){}}
 function ekle(s,t){var d=document.createElement("div");d.className=s;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight}
 var oynatici=null;
