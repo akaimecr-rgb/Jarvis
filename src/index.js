@@ -277,14 +277,16 @@ async function geriAl(env) {
 }
 
 async function kurgula(env, metin) {
-  const link = (metin.match(/https?:\/\/\S+/) || [])[0];
-  if (!link) return "Video linkini de yaz. Örnek: kurgula shorts https://drive.google.com/...";
+  const linkler = metin.match(/https?:\/\/\S+/g) || [];
+  const malzeme = linkler.find((l) => l.includes("/folders/")) || "";
+  const video = linkler.find((l) => !l.includes("/folders/"));
+  if (!video) return "Video linkini de yaz. Örnek: kurgula shorts <video linki> malzeme <klasör linki>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/dispatches`, {
     method: "POST",
-    body: JSON.stringify({ ref: "main", inputs: { format, video_url: link, plan: "" } }),
+    body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, plan: "" } }),
   });
-  return `Kurguyu başlattım (${format}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
+  return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
 
 async function kurguDurumu(env) {
