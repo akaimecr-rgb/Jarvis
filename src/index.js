@@ -282,9 +282,16 @@ async function kurgula(env, metin) {
   const video = linkler.find((l) => !l.includes("/folders/"));
   if (!video) return "Video linkini de yaz. Örnek: kurgula shorts <video linki> malzeme <klasör linki>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
+  const talimat = metin
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/^\s*kurgula\s*/i, "")
+    .replace(/\b(shorts|uzun|malzeme)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/dispatches`, {
     method: "POST",
-    body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, plan: "" } }),
+    body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, talimat, plan: "" } }),
   });
   return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
