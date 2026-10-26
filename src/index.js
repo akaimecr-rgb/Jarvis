@@ -369,8 +369,44 @@ async function sesiYaziyaCevir(env, b64) {
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
 }
 
+// ---------------- Groq (cok hizli konusma ve dinleme) ----------------
+async function sorGroq(env, sistem, gecmis) {
+  const model = env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: sistem }, ...gecmis],
+      max_tokens: 600,
+      ...(model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
+    }),
+  });
+  if (!r.ok) throw new Error("Groq " + r.status);
+  const j = await r.json();
+  return j.choices?.[0]?.message?.content || "";
+}
+
+async function groqDinle(env, b64) {
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const form = new FormData();
+  form.append("file", new Blob([bytes], { type: "audio/wav" }), "ses.wav");
+  form.append("model", env.GROQ_DINLE_MODEL || "whisper-large-v3-turbo");
+  form.append("language", "tr");
+  form.append("response_format", "json");
+  const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + env.GROQ_API_KEY },
+    body: form,
+  });
+  if (!r.ok) throw new Error("Groq dinleme " + r.status);
+  return ((await r.json()).text || "").trim();
+}
+
 // ---------------- Sohbet (yazili veya sesli) ----------------
 async function sohbetEt(env, metin, sesB64) {
+  metin = metin || "";
   if (metin && metin.toLocaleLowerCase("tr").includes("sohbeti sil")) {
     await kvYaz(env, "gecmis", []);
     return { cevap: "Sohbet gecmisini sildim. Notlarim duruyor.", beyin: "sistem" };
@@ -380,6 +416,18 @@ async function sohbetEt(env, metin, sesB64) {
   const notlar = await kvOku(env, "notlar", []);
   const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "");
   let cevap, beyin, duydum = metin;
+
+  if (sesB64 && env.GROQ_API_KEY) {
+    try {
+      metin = await groqDinle(env, sesB64);
+      duydum = metin;
+      if (!metin) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
+      if (komut(metin)) return { duydum: metin, komut: true };
+      sesB64 = null; // yazili yoldan devam
+    } catch (e) {
+      // Groq olmazsa Gemini ile dene
+    }
+  }
 
   if (sesB64) {
     // Tek istekte: sesi anla + cevap ver
@@ -403,15 +451,19 @@ async function sohbetEt(env, metin, sesB64) {
   } else {
     gecmis.push({ role: "user", content: metin });
     beyin = beyinSec(metin);
+    if (beyin === "gemini" && env.GROQ_API_KEY) beyin = "groq";
     const son = gecmis.slice(-30);
     while (son.length && son[0].role !== "user") son.shift();
     try {
       if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
       else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
+      else if (beyin === "groq") cevap = await sorGroq(env, sistem, son);
       else cevap = await sorGemini(env, sistem, son, M.sohbet);
+      if (!cevap) throw new Error("bos cevap");
     } catch (e) {
       try {
-        if (beyin === "gemini") cevap = await sorOpenRouter(env, sistem, son);
+        if (beyin === "groq") cevap = await sorGemini(env, sistem, son, M.sohbet);
+        else if (beyin === "gemini") cevap = await sorOpenRouter(env, sistem, son);
         else cevap = await sorGemini(env, sistem, son, M.sohbet);
       } catch (e2) {
         return { cevap: "Beyinlere ulasamadim. Hata: " + e.message + " / " + e2.message, beyin };

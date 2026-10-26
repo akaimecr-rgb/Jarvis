@@ -18,6 +18,7 @@ KV: HAFIZA
 
 ## Gorev dagitimi (modeller)
 Cloudflare'de Text degiskeniyle degistirilir:
+- `GROQ_API_KEY` (Secret) varsa konusma ve dinleme Groq ile yapilir (GROQ_MODEL, GROQ_DINLE_MODEL)
 - `SOHBET_MODEL` (varsayilan gemini-flash-lite-latest): hizli konusma, ses tek istekte anlasilir
 - `KOD_MODEL` (varsayilan gemini-pro-latest): kod yazma; hata verirse `KOD_YEDEK_MODEL` / `OPENROUTER_MODEL`
 - `DINLE_MODEL`: yedek ses-yazi cevirme
