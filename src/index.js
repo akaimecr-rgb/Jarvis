@@ -184,6 +184,80 @@ btn.onclick=async function(){
   kayit.start();btn.classList.add("dinliyor");btn.textContent="Bitir";
   zaman=setTimeout(durdur,30000);
 };
+
+// ---------- Butonsuz konusma (mod=serbest) ve sabah alarmi (mod=alarm) ----------
+var MOD=new URLSearchParams(location.search).get("mod")||"";
+function androidBitti(){try{if(window.Android&&Android.bitti)Android.bitti()}catch(e){}}
+function bekle(ms){return new Promise(function(r){setTimeout(r,ms)})}
+// Sesi kaydeder: konusma baslayana kadar bekler, susunca durur. Konusma yoksa null.
+async function dinleVAD(azamiBekleme){
+  var akis2=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
+  var kaynak=ctx.createMediaStreamSource(akis2);var an=ctx.createAnalyser();an.fftSize=1024;kaynak.connect(an);
+  var veri=new Uint8Array(an.fftSize);var rec=new MediaRecorder(akis2);var par=[];
+  rec.ondataavailable=function(e){if(e.data.size)par.push(e.data)};
+  rec.start();btn.classList.add("dinliyor");cember.classList.add("aktif");
+  var basla=Date.now(),konustu=false,sonSes=0,taban=0,olcum=0;
+  while(true){
+    await bekle(60);an.getByteTimeDomainData(veri);
+    var t=0;for(var i=0;i<veri.length;i++){var v=(veri[i]-128)/128;t+=v*v}var rms=Math.sqrt(t/veri.length);
+    if(olcum<8){taban+=rms/8;olcum++;continue}
+    var esik=Math.max(0.025,taban*2.5);
+    if(rms>esik){konustu=true;sonSes=Date.now()}
+    if(konustu&&Date.now()-sonSes>1200)break;
+    if(!konustu&&Date.now()-basla>azamiBekleme)break;
+    if(Date.now()-basla>30000)break;
+  }
+  var bitti=new Promise(function(r){rec.onstop=r});rec.stop();await bitti;
+  akis2.getTracks().forEach(function(x){x.stop()});ctx.close();
+  btn.classList.remove("dinliyor");cember.classList.remove("aktif");
+  if(!konustu)return null;
+  return await wavaCevir(await new Blob(par).arrayBuffer());
+}
+function sesBitene(){return new Promise(function(r){var k=setInterval(function(){var calan=oynatici&&!oynatici.paused&&!oynatici.ended;if(!calan&&!speechSynthesis.speaking){clearInterval(k);r()}},200)})}
+async function serbestMod(){
+  btn.style.display="none";
+  await konus("Efendim?");await bekle(300);await sesBitene();
+  var sessizTur=0;
+  while(true){
+    var b64=await dinleVAD(8000);
+    if(!b64){sessizTur++;if(sessizTur>=4){await konus("Ben buradayım, gerekirse Jarvis de.");await sesBitene();androidBitti();return}continue}
+    sessizTur=0;
+    var d=document.createElement("div");d.className="jarvis";d.textContent="...";log.appendChild(d);
+    try{
+      var r=await fetch("/konus",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
+      var v=await r.json();d.remove();
+      if(v.duydum)ekle("sen","Sen: "+v.duydum);
+      if(v.komut){await gonder(v.duydum,true)}
+      else{ekle("jarvis","Jarvis: "+v.cevap);await konus(v.cevap)}
+      await bekle(400);await sesBitene();
+      if(v.bitis){androidBitti();return}
+    }catch(e){d.remove();ekle("jarvis","Bağlantı sorunu, tekrar dinliyorum.")}
+  }
+}
+async function alarmMod(){
+  btn.style.display="none";
+  try{var a=await (await fetch("/alarm",{headers:{"x-secret":sifre}})).json();if(a.atla){androidBitti();return}}catch(e){}
+  var mesaj=a&&a.mesaj?a.mesaj:"Songül Hanım, Eren'i uyandır.";
+  var ses=null;try{ses=await sesAl(mesaj)}catch(e){}
+  var bas=Date.now();
+  while(Date.now()-bas<30*60*1000){
+    ekle("jarvis",mesaj);
+    if(ses){await cal(ses)}else{tarayiciSesi(mesaj);await bekle(500);await sesBitene()}
+    var b64=await dinleVAD(7000);
+    if(b64){
+      try{
+        var r=await fetch("/dinle",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
+        var v=await r.json();
+        if(v.metin)ekle("sen","Sen: "+v.metin);
+        if(/uyand/i.test(v.metin||"")){await konus("Günaydın Eren! Güzel bir gün olsun.");await bekle(400);await sesBitene();androidBitti();return}
+      }catch(e){}
+    }
+  }
+  androidBitti();
+}
+if(MOD==="serbest")setTimeout(serbestMod,300);
+if(MOD==="alarm")setTimeout(alarmMod,300);
 </script></body></html>`;
 
 
@@ -353,6 +427,27 @@ async function kurguDurumu(env) {
   return { cevap: `Son kurgu ${durum}.`, link: r.html_url };
 }
 
+const BITIS = /kapat[ıi]yorum|görüşürüz|gorusuruz|tamam kapat/i;
+
+function bugunTR(gun = 0) {
+  return new Date(Date.now() + 3 * 3600 * 1000 + gun * 86400000).toISOString().slice(0, 10);
+}
+
+async function alarmAyari(env, metin) {
+  const m = metin.toLocaleLowerCase("tr");
+  let atla = await kvOku(env, "alarm_atla", []);
+  if (/aç|ac\b|kur/.test(m) && !/yapma|kapat|çalma/.test(m)) {
+    atla = [];
+    await kvYaz(env, "alarm_atla", atla);
+    return "Alarm her gün 08:30'da çalacak.";
+  }
+  const gun = m.includes("bugün") ? 0 : m.includes("öbür") ? 2 : 1;
+  const tarih = bugunTR(gun);
+  if (!atla.includes(tarih)) atla.push(tarih);
+  await kvYaz(env, "alarm_atla", atla.filter((t) => t >= bugunTR(0)));
+  return (gun === 0 ? "Bugün" : gun === 1 ? "Yarın" : "Öbür gün") + " alarm çalmayacak.";
+}
+
 function komut(metin) {
   const m = metin.toLocaleLowerCase("tr").trim().replace(/[.!?]+$/, "");
   if (m === "onayla" || m === "onaylıyorum") return "onayla";
@@ -364,6 +459,7 @@ function komut(metin) {
   if (m === "ilanlar" || m === "yeni ilanlar" || m.includes("ilan var mı")) return "ilanlar";
   if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
   if (m === "ilan ara") return "ilan_ara";
+  if (m.includes("alarm")) return "alarm";
   if (m.includes("kurgu durumu")) return "kurgu_durumu";
   return null;
 }
@@ -498,6 +594,7 @@ async function sohbetEt(env, metin, sesB64) {
       metin = await groqDinle(env, sesB64);
       duydum = metin;
       if (!metin) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
+      if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
       if (komut(metin)) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
     } catch (e) {
@@ -522,6 +619,7 @@ async function sohbetEt(env, metin, sesB64) {
     cevap = String(j.cevap || "");
     if (!duydum) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
     const k = komut(duydum);
+    if (BITIS.test(duydum)) return { duydum, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
     if (k) return { duydum, komut: true };
     gecmis.push({ role: "user", content: duydum });
   } else {
@@ -561,6 +659,13 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (request.method === "GET" && url.pathname === "/alarm") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      const atla = await kvOku(env, "alarm_atla", []);
+      return Response.json({ atla: atla.includes(bugunTR(0)), mesaj: env.ALARM_MESAJ || "Songül Hanım, Eren'i uyandır." });
     }
     if (request.method === "POST" && url.pathname === "/konus") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
@@ -605,7 +710,7 @@ export default {
 
       const k = komut(metin);
       if (k) {
-        if (!env.GITHUB_TOKEN) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
+        if (!env.GITHUB_TOKEN && k !== "alarm") return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
         try {
           let c;
           if (k === "onayla") c = await kodOnayla(env);
@@ -615,6 +720,7 @@ export default {
           else if (k === "kurgula") c = await kurgula(env, metin);
           else if (k === "stil") c = await stilCikar(env, metin);
           else if (k === "ilanlar") c = await ilanlar(env);
+          else if (k === "alarm") c = await alarmAyari(env, metin);
           else if (k === "ilan_ara") c = await ilanAra(env);
           else if (k === "basvuru") {
             const b = await basvuruYaz(env, metin);
