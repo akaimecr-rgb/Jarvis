@@ -289,6 +289,17 @@ async function kurgula(env, metin) {
   return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
 
+async function stilCikar(env, metin) {
+  const linkler = metin.match(/https?:\/\/\S+/g) || [];
+  if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
+  const format = /uzun/i.test(metin) ? "uzun" : "shorts";
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/stil.yml/dispatches`, {
+    method: "POST",
+    body: JSON.stringify({ ref: "main", inputs: { format, linkler: linkler.join(" ") } }),
+  });
+  return `${linkler.length} örnek videodan ${format} stilini çıkarıyorum. 5-10 dakika sürer. Bitince bundan sonraki kurgular bu stille yapılır.`;
+}
+
 async function kurguDurumu(env) {
   const j = await gh(env, `/repos/${SABLON_REPO}/actions/runs?per_page=1`);
   const r = j.workflow_runs && j.workflow_runs[0];
@@ -305,6 +316,7 @@ function komut(metin) {
   if (m === "geri al") return "geri_al";
   if (m.startsWith("kod:") || m.startsWith("kendine ")) return "kod";
   if (m.startsWith("kurgula")) return "kurgula";
+  if (m.startsWith("stil çıkar") || m.startsWith("stil cikar")) return "stil";
   if (m.includes("kurgu durumu")) return "kurgu_durumu";
   return null;
 }
@@ -539,6 +551,7 @@ export default {
           else if (k === "geri_al") c = await geriAl(env);
           else if (k === "kod") c = await kodIstegi(env, metin.replace(/^kod:\s*/i, ""));
           else if (k === "kurgula") c = await kurgula(env, metin);
+          else if (k === "stil") c = await stilCikar(env, metin);
           else if (k === "kurgu_durumu") {
             const d = await kurguDurumu(env);
             return Response.json({ cevap: typeof d === "string" ? d : d.cevap, link: d.link, beyin: "sistem" });

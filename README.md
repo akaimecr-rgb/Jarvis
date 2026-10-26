@@ -9,6 +9,7 @@ Cloudflare Worker (`jarviss`). Bu depodaki `src/index.js` degisince Cloudflare o
 - `kod: <istek>` → Jarvis kendi kodunu yazar, ozetler → `onayla` / `iptal`
 - `geri al` → son kod degisikligini geri alir
 - `kurgula shorts <Drive linki>` veya `kurgula uzun <link>` → bulutta render
+- `stil çıkar shorts <link1> <link2> <link3>` → ornek videolardan stil cikarir
 - `kurgu durumu` → son render'in durumu ve linki
 
 ## Cloudflare ayarlari
