@@ -33,3 +33,4 @@
 - Ilanlardaki ornek video linklerinden otomatik stil cikarma.
 - Malzeme klasorundeki muzik ve logoyu kurguya otomatik yerlestirmek.
 - Para kazanmaya baslayinca kod yazmayi Claude API'ye gecirmek.
+- Uzun vadeli hedef (isler buyuyunce): Eren'e ozel model. Jarvis birkac ay veri biriktirir (sohbetler, stil dosyalari, musteri mesajlari) -> acik bir model (Llama/Qwen/Gemma) LoRA ile egitilir -> Jarvis'e baglanir. Jarvis bu modeli "kisisel beyin" olarak kullanir, ozel isler icin API'deki diger modelleri (Claude, Gemini, Groq) yonetir. Bilgi icin ayrica bilgi bankasi (RAG) eklenir.
