@@ -137,7 +137,7 @@ btn.onclick=function(){
 
 
 // ---------------- GitHub (kendi kodunu yazma + kurgu) ----------------
-const REPO = "akaimecr-rgb/jarvis";
+const REPO = "akaimecr-rgb/Jarvis";
 const SABLON_REPO = "akaimecr-rgb/remotion-sablonlar";
 const KOD_YOLU = "src/index.js";
 const CIT = "`".repeat(3);

@@ -1,0 +1,13 @@
+name = "jarviss"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+# Panelde eklenen Text degiskenleri (GEMINI_MODEL vb.) silinmesin:
+keep_vars = true
+
+[[kv_namespaces]]
+binding = "HAFIZA"
+id = "8c1195f4dd6744c59ba05700a260a942"
+
+[observability]
+enabled = true
