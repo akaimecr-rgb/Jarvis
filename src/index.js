@@ -123,15 +123,52 @@ async function gonder(metin,sesli){
 document.getElementById("gonder").onclick=function(){gonder(yazi.value,false);yazi.value=""};
 yazi.onkeydown=function(e){if(e.key==="Enter"){gonder(yazi.value,false);yazi.value=""}};
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-btn.onclick=function(){
+var kayit=null,parcalar=[],akis=null,zaman=null;
+function eskiDinle(){
   if(!SR){ekle("jarvis","Bu tarayici ses tanimayi desteklemiyor. Chrome kullan.");return}
-  speechSynthesis.cancel();
   var r=new SR();r.lang="tr-TR";
   r.onstart=function(){btn.classList.add("dinliyor");cember.classList.add("aktif")};
   r.onend=function(){btn.classList.remove("dinliyor");cember.classList.remove("aktif")};
   r.onerror=function(){ekle("jarvis","Seni duyamadim, tekrar dene.")};
   r.onresult=function(e){gonder(e.results[0][0].transcript,true)};
   r.start();
+}
+function wavaCevir(ab){
+  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
+  return ctx.decodeAudioData(ab).then(function(buf){
+    var hz=16000,oran=buf.sampleRate/hz,n=Math.floor(buf.length/oran),ham=buf.getChannelData(0);
+    var dv=new DataView(new ArrayBuffer(44+n*2));
+    function y(o,t){for(var i=0;i<t.length;i++)dv.setUint8(o+i,t.charCodeAt(i))}
+    y(0,"RIFF");dv.setUint32(4,36+n*2,true);y(8,"WAVE");y(12,"fmt ");dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);
+    dv.setUint32(24,hz,true);dv.setUint32(28,hz*2,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);y(36,"data");dv.setUint32(40,n*2,true);
+    for(var i=0;i<n;i++){var v=Math.max(-1,Math.min(1,ham[Math.floor(i*oran)]));dv.setInt16(44+i*2,v<0?v*0x8000:v*0x7fff,true)}
+    ctx.close();
+    var by=new Uint8Array(dv.buffer),s="";for(var j=0;j<by.length;j+=0x8000)s+=String.fromCharCode.apply(null,by.subarray(j,j+0x8000));
+    return btoa(s);
+  });
+}
+function durdur(){if(kayit&&kayit.state==="recording")kayit.stop()}
+btn.onclick=async function(){
+  if(kayit&&kayit.state==="recording"){durdur();return}
+  if(oynatici)oynatici.pause();speechSynthesis.cancel();
+  if(!navigator.mediaDevices||!window.MediaRecorder){eskiDinle();return}
+  try{akis=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){ekle("jarvis","Mikrofon izni yok.");return}
+  parcalar=[];kayit=new MediaRecorder(akis);
+  kayit.ondataavailable=function(e){if(e.data.size)parcalar.push(e.data)};
+  kayit.onstop=async function(){
+    clearTimeout(zaman);akis.getTracks().forEach(function(t){t.stop()});
+    btn.classList.remove("dinliyor");btn.textContent="Mik";
+    var d=document.createElement("div");d.className="jarvis";d.textContent="Dinledim, anlıyorum...";log.appendChild(d);
+    try{
+      var b64=await wavaCevir(await new Blob(parcalar).arrayBuffer());
+      var r=await fetch("/dinle",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
+      var v=await r.json();d.remove();
+      if(!v.metin){ekle("jarvis","Seni duyamadım, tekrar dene.");return}
+      gonder(v.metin,true);
+    }catch(e){d.remove();ekle("jarvis","Ses çözülemedi, telefonun ses tanımasıyla deniyorum.");eskiDinle()}
+  };
+  kayit.start();btn.classList.add("dinliyor");btn.textContent="Bitir";
+  zaman=setTimeout(durdur,30000);
 };
 </script></body></html>`;
 
@@ -292,11 +329,44 @@ async function sesUret(env, metin) {
   return wavYap(pcm, hz);
 }
 
+// ---------------- Dinleme (Gemini ile sesi yaziya cevirme) ----------------
+async function sesiYaziyaCevir(env, b64) {
+  const model = env.DINLE_MODEL || env.GEMINI_MODEL || "gemini-flash-latest";
+  const r = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { inlineData: { mimeType: "audio/wav", data: b64 } },
+          { text: "Bu ses kaydini oldugu gibi yaziya dok. Konusma genelde Turkce, arada Ingilizce kelimeler olabilir. Sadece soylenen metni yaz, aciklama ekleme. Konusma yoksa bos cevap ver." },
+        ] }],
+        generationConfig: { temperature: 0 },
+      }),
+    }
+  );
+  if (!r.ok) throw new Error("Dinleme " + r.status);
+  const j = await r.json();
+  return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (request.method === "POST" && url.pathname === "/dinle") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      try {
+        const { ses = "" } = await request.json();
+        return Response.json({ metin: await sesiYaziyaCevir(env, ses) });
+      } catch (e) {
+        return Response.json({ metin: "", hata: e.message }, { status: 502 });
+      }
     }
     if (request.method === "POST" && url.pathname === "/ses") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
