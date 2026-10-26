@@ -26,8 +26,17 @@ async function kvYaz(env, k, v) {
   if (env.HAFIZA) await env.HAFIZA.put(k, JSON.stringify(v));
 }
 
-async function sorGemini(env, sistem, gecmis) {
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+// ---------------- Gorev dagitimi: her is icin en uygun model ----------------
+// Cloudflare'de Text degiskeniyle degistirilebilir.
+const MODELLER = (env) => ({
+  sohbet: env.SOHBET_MODEL || "gemini-flash-lite-latest", // hizli konusma
+  kod: env.KOD_MODEL || "gemini-pro-latest", // en iyi kod
+  kodYedek: env.KOD_YEDEK_MODEL || env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra:free",
+  dinle: env.DINLE_MODEL || "gemini-flash-lite-latest",
+});
+
+async function sorGemini(env, sistem, gecmis, modelAdi, secenek = {}) {
+  const model = modelAdi || env.GEMINI_MODEL || "gemini-flash-latest";
   const r = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
     {
@@ -35,7 +44,11 @@ async function sorGemini(env, sistem, gecmis) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: sistem }] },
-        contents: gecmis.map((g) => ({ role: g.role === "user" ? "user" : "model", parts: [{ text: g.content }] })),
+        contents: gecmis.map((g, i) => ({
+          role: g.role === "user" ? "user" : "model",
+          parts: [{ text: g.content }, ...(i === gecmis.length - 1 && secenek.ekParcalar ? secenek.ekParcalar : [])],
+        })),
+        ...(secenek.json ? { generationConfig: { responseMimeType: "application/json" } } : {}),
       }),
     }
   );
@@ -45,12 +58,12 @@ async function sorGemini(env, sistem, gecmis) {
   return (p && p.map((x) => x.text || "").join("")) || "Model bos cevap verdi, tekrar dene.";
 }
 
-async function sorOpenRouter(env, sistem, gecmis) {
+async function sorOpenRouter(env, sistem, gecmis, modelAdi) {
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: "Bearer " + env.OPENROUTER_API_KEY, "content-type": "application/json" },
     body: JSON.stringify({
-      model: env.OPENROUTER_MODEL || "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+      model: modelAdi || env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning:free",
       messages: [{ role: "system", content: sistem }, ...gecmis],
     }),
   });
@@ -97,17 +110,16 @@ if(!sifre){sifre=prompt("Jarvis sifresi:")||"";try{localStorage.setItem("jarvis_
 function ekle(s,t){var d=document.createElement("div");d.className=s;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight}
 var oynatici=null;
 function tarayiciSesi(t){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.15;u.onstart=function(){cember.classList.add("aktif")};u.onend=function(){cember.classList.remove("aktif")};speechSynthesis.cancel();speechSynthesis.speak(u)}
+var sesSirasi=0;
+function sesAl(t){return fetch("/ses",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok)throw new Error("ses");return r.blob()})}
+function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));oynatici.onplay=function(){cember.classList.add("aktif")};oynatici.onended=function(){cember.classList.remove("aktif");ok()};oynatici.onerror=ok;oynatici.play().catch(ok)})}
 async function konus(t){
-  try{
-    var r=await fetch("/ses",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({metin:t})});
-    if(!r.ok)throw new Error("ses");
-    var b=await r.blob();
-    if(oynatici){oynatici.pause()}
-    oynatici=new Audio(URL.createObjectURL(b));
-    oynatici.onplay=function(){cember.classList.add("aktif")};
-    oynatici.onended=function(){cember.classList.remove("aktif")};
-    await oynatici.play();
-  }catch(e){tarayiciSesi(t)}
+  var benim=++sesSirasi;if(oynatici)oynatici.pause();
+  var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
+  var parcalar=[];for(var i=0;i<cumleler.length;i++){var son=parcalar[parcalar.length-1];if(son&&son.length<60)parcalar[parcalar.length-1]=son+" "+cumleler[i];else parcalar.push(cumleler[i])}
+  var istekler=parcalar.map(sesAl);
+  try{for(var j=0;j<istekler.length;j++){var b=await istekler[j];if(benim!==sesSirasi)return;await cal(b)}}
+  catch(e){if(benim===sesSirasi)tarayiciSesi(t)}
 }
 async function gonder(metin,sesli){
   if(!metin.trim())return;
@@ -161,10 +173,12 @@ btn.onclick=async function(){
     var d=document.createElement("div");d.className="jarvis";d.textContent="Dinledim, anlıyorum...";log.appendChild(d);
     try{
       var b64=await wavaCevir(await new Blob(parcalar).arrayBuffer());
-      var r=await fetch("/dinle",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
+      var r=await fetch("/konus",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
+      if(!r.ok)throw new Error("konus");
       var v=await r.json();d.remove();
-      if(!v.metin){ekle("jarvis","Seni duyamadım, tekrar dene.");return}
-      gonder(v.metin,true);
+      if(v.komut){gonder(v.duydum,true);return}
+      if(v.duydum)ekle("sen","Sen: "+v.duydum);
+      ekle("jarvis","Jarvis: "+v.cevap);konus(v.cevap);
     }catch(e){d.remove();ekle("jarvis","Ses çözülemedi, telefonun ses tanımasıyla deniyorum.");eskiDinle()}
   };
   kayit.start();btn.classList.add("dinliyor");btn.textContent="Bitir";
@@ -223,10 +237,14 @@ async function kodIstegi(env, istek) {
     "Sen bir Cloudflare Worker gelistiricisisin. Sana Jarvis'in tum kaynak kodu ve bir degisiklik istegi verilecek. " +
     "Istenen degisikligi yap ve var olan hicbir ozelligi bozma. Cevabin TAM OLARAK su bicimde olsun:\n" +
     "OZET: <Turkce, 1-3 cumle, ne degistirdin>\n" + CIT + "js\n<dosyanin TAMAMI, degistirilmis hali>\n" + CIT;
-  const model = env.KOD_MODEL || env.GEMINI_MODEL || "gemini-flash-latest";
-  const cevap = await sorGemini({ ...env, GEMINI_MODEL: model }, sistem, [
-    { role: "user", content: "ISTEK: " + istek + "\n\nMEVCUT KOD:\n" + CIT + "js\n" + icerik + "\n" + CIT },
-  ]);
+  const M = MODELLER(env);
+  const mesaj = [{ role: "user", content: "ISTEK: " + istek + "\n\nMEVCUT KOD:\n" + CIT + "js\n" + icerik + "\n" + CIT }];
+  let cevap;
+  try {
+    cevap = await sorGemini(env, sistem, mesaj, M.kod);
+  } catch (e) {
+    cevap = await sorOpenRouter(env, sistem, mesaj, M.kodYedek);
+  }
   const bas = cevap.indexOf(CIT);
   const son = cevap.lastIndexOf(CIT);
   const kod = bas >= 0 && son > bas ? cevap.slice(cevap.indexOf("\n", bas) + 1, son).trim() + "\n" : null;
@@ -331,7 +349,7 @@ async function sesUret(env, metin) {
 
 // ---------------- Dinleme (Gemini ile sesi yaziya cevirme) ----------------
 async function sesiYaziyaCevir(env, b64) {
-  const model = env.DINLE_MODEL || env.GEMINI_MODEL || "gemini-flash-latest";
+  const model = MODELLER(env).dinle;
   const r = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
     {
@@ -351,11 +369,81 @@ async function sesiYaziyaCevir(env, b64) {
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
 }
 
+// ---------------- Sohbet (yazili veya sesli) ----------------
+async function sohbetEt(env, metin, sesB64) {
+  if (metin && metin.toLocaleLowerCase("tr").includes("sohbeti sil")) {
+    await kvYaz(env, "gecmis", []);
+    return { cevap: "Sohbet gecmisini sildim. Notlarim duruyor.", beyin: "sistem" };
+  }
+  const M = MODELLER(env);
+  let gecmis = await kvOku(env, "gecmis", []);
+  const notlar = await kvOku(env, "notlar", []);
+  const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "");
+  let cevap, beyin, duydum = metin;
+
+  if (sesB64) {
+    // Tek istekte: sesi anla + cevap ver
+    beyin = "gemini";
+    const taslak = gecmis.slice(-29).concat([{ role: "user", content:
+      "Ekteki ses kaydi Eren'in sana soyledigi sey. Once soyledigini oldugu gibi yaziya dok, sonra ona cevap ver. " +
+      'SADECE su JSON ile cevap ver: {"duydum": "...", "cevap": "..."}' }]);
+    while (taslak.length && taslak[0].role !== "user") taslak.shift();
+    const ham = await sorGemini(env, sistem, taslak, M.sohbet, {
+      json: true,
+      ekParcalar: [{ inlineData: { mimeType: "audio/wav", data: sesB64 } }],
+    });
+    let j;
+    try { j = JSON.parse(ham); } catch (e) { j = { duydum: "", cevap: ham }; }
+    duydum = String(j.duydum || "").trim();
+    cevap = String(j.cevap || "");
+    if (!duydum) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
+    const k = komut(duydum);
+    if (k) return { duydum, komut: true };
+    gecmis.push({ role: "user", content: duydum });
+  } else {
+    gecmis.push({ role: "user", content: metin });
+    beyin = beyinSec(metin);
+    const son = gecmis.slice(-30);
+    while (son.length && son[0].role !== "user") son.shift();
+    try {
+      if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
+      else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
+      else cevap = await sorGemini(env, sistem, son, M.sohbet);
+    } catch (e) {
+      try {
+        if (beyin === "gemini") cevap = await sorOpenRouter(env, sistem, son);
+        else cevap = await sorGemini(env, sistem, son, M.sohbet);
+      } catch (e2) {
+        return { cevap: "Beyinlere ulasamadim. Hata: " + e.message + " / " + e2.message, beyin };
+      }
+    }
+  }
+
+  cevap = String(cevap || "");
+  const yeni = [...cevap.matchAll(/\[HATIRLA:\s*([^\]]+)\]/g)].map((m) => m[1].trim());
+  cevap = cevap.replace(/\[HATIRLA:[^\]]*\]/g, "").trim();
+  if (yeni.length) await kvYaz(env, "notlar", notlar.concat(yeni).slice(-100));
+  gecmis.push({ role: "assistant", content: cevap });
+  await kvYaz(env, "gecmis", gecmis.slice(-30));
+  return { duydum, cevap, beyin };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (request.method === "POST" && url.pathname === "/konus") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      try {
+        const { ses = "" } = await request.json();
+        return Response.json(await sohbetEt(env, "", ses));
+      } catch (e) {
+        return Response.json({ hata: e.message }, { status: 502 });
+      }
     }
     if (request.method === "POST" && url.pathname === "/dinle") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
@@ -407,38 +495,7 @@ export default {
         }
       }
 
-      const kucuk = metin.toLocaleLowerCase("tr");
-      if (kucuk.includes("sohbeti sil")) {
-        await kvYaz(env, "gecmis", []);
-        return Response.json({ cevap: "Sohbet gecmisini sildim. Notlarim duruyor.", beyin: "sistem" });
-      }
-      let gecmis = await kvOku(env, "gecmis", []);
-      const notlar = await kvOku(env, "notlar", []);
-      gecmis.push({ role: "user", content: metin });
-      gecmis = gecmis.slice(-30);
-      while (gecmis.length && gecmis[0].role !== "user") gecmis.shift();
-      const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "");
-      const beyin = beyinSec(metin);
-      let cevap;
-      try {
-        if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, gecmis);
-        else if (beyin === "claude") cevap = await sorClaude(env, sistem, gecmis);
-        else cevap = await sorGemini(env, sistem, gecmis);
-      } catch (e) {
-        try {
-          if (beyin === "gemini") cevap = await sorOpenRouter(env, sistem, gecmis);
-          else cevap = await sorGemini(env, sistem, gecmis);
-        } catch (e2) {
-          return Response.json({ cevap: "Beyinlere ulasamadim. Hata: " + e.message + " / " + e2.message, beyin });
-        }
-      }
-      cevap = String(cevap || "");
-      const yeni = [...cevap.matchAll(/\[HATIRLA:\s*([^\]]+)\]/g)].map((m) => m[1].trim());
-      cevap = cevap.replace(/\[HATIRLA:[^\]]*\]/g, "").trim();
-      if (yeni.length) await kvYaz(env, "notlar", notlar.concat(yeni).slice(-100));
-      gecmis.push({ role: "assistant", content: cevap });
-      await kvYaz(env, "gecmis", gecmis);
-      return Response.json({ cevap, beyin });
+      return Response.json(await sohbetEt(env, metin));
     }
     return new Response("Bulunamadi", { status: 404 });
   },

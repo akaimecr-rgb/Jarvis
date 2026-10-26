@@ -15,3 +15,10 @@ Cloudflare Worker (`jarviss`). Bu depodaki `src/index.js` degisince Cloudflare o
 Secret: APP_SECRET, GEMINI_API_KEY, OPENROUTER_API_KEY, GITHUB_TOKEN
 Text: GEMINI_MODEL, OPENROUTER_MODEL, (istege bagli) KOD_MODEL
 KV: HAFIZA
+
+## Gorev dagitimi (modeller)
+Cloudflare'de Text degiskeniyle degistirilir:
+- `SOHBET_MODEL` (varsayilan gemini-flash-lite-latest): hizli konusma, ses tek istekte anlasilir
+- `KOD_MODEL` (varsayilan gemini-pro-latest): kod yazma; hata verirse `KOD_YEDEK_MODEL` / `OPENROUTER_MODEL`
+- `DINLE_MODEL`: yedek ses-yazi cevirme
+- `TTS_MODEL`, `SES_ADI`: Jarvis'in sesi
