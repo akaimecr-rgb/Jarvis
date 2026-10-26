@@ -426,6 +426,19 @@ async function groqDinle(env, b64) {
 }
 
 // ---------------- Sohbet (yazili veya sesli) ----------------
+async function yapilacaklar(env) {
+  if (!env.GITHUB_TOKEN) return "";
+  const onbellek = await kvOku(env, "yapilacaklar_onbellek", null);
+  if (onbellek && Date.now() - onbellek.zaman < 10 * 60 * 1000) return onbellek.metin;
+  try {
+    const { icerik } = await dosyaOku(env, "YAPILACAKLAR.md");
+    await kvYaz(env, "yapilacaklar_onbellek", { zaman: Date.now(), metin: icerik });
+    return icerik;
+  } catch (e) {
+    return onbellek ? onbellek.metin : "";
+  }
+}
+
 async function sohbetEt(env, metin, sesB64) {
   metin = metin || "";
   if (metin && metin.toLocaleLowerCase("tr").includes("sohbeti sil")) {
@@ -435,7 +448,9 @@ async function sohbetEt(env, metin, sesB64) {
   const M = MODELLER(env);
   let gecmis = await kvOku(env, "gecmis", []);
   const notlar = await kvOku(env, "notlar", []);
-  const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "");
+  const plan = await yapilacaklar(env);
+  const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "") +
+    (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "");
   let cevap, beyin, duydum = metin;
 
   if (sesB64 && env.GROQ_API_KEY) {
