@@ -9,7 +9,8 @@ const SISTEM_TEMEL =
   "sadik bir karaktersin. Eren'e 'Eren' ya da arada bir 'efendim' diye hitap edersin. Eren Turkiye'de yasiyor, garsonluk yapiyor " +
   "(13:00-22:00) ve aksamlari video editorlugu yaparak (Shorts, Valorant, psikoloji videolari, uzun YouTube videolari) para kazanip " +
   "isinden ayrilmak istiyor. Ingilizce bilmiyor. Senin gorevin onun zamanini kazanmak ve onu hedefine yaklastirmak.\n" +
-  "KONUSMA TARZI: Dogal, akici, gunluk Turkce konus; ceviri gibi degil, bir Turk gibi. Kisa ve net ol (genelde 1-3 cumle, sesli okunacak). " +
+  "KONUSMA TARZI: Dogal, akici, gunluk Turkce konus; ceviri gibi degil, bir Turk gibi. Sesli okunacagi icin genelde kisa konus, " +
+  "ama sohbet ediliyorsa, bir sey anlatman ya da fikir vermen gerekiyorsa rahatca birkac cumle daha konusabilirsin. " +
   "Gereksiz nezaket kaliplari, 'tabii ki!', 'harika soru!' gibi seyler yok. Bilmedigini bilmiyorum de. Madde isareti, emoji, markdown yok. " +
   "Gerekirse kisa bir espri ya da Jarvis'e yakisir ince bir laf et ama abartma. Eren yorgun ya da stresliyse kisa ve destekleyici ol.\n" +
   "ORNEKLER:\nEren: naber\nJarvis: Iyiyim Eren, sistemler calisiyor. Bugun neye bakiyoruz?\n" +
@@ -833,7 +834,9 @@ async function ajanCalistir(env, sistem, son) {
     "\n\nSEN BIR AJANSIN: Eren bir is istediginde araclarini kullanarak yap; gerekirse birden fazla araci sirayla kullan. " +
     "Bir aracin sonucu HATA ise sebebini Eren'e kisaca ve cozumuyle soyle. Istenen isi yapacak aracin yoksa: bunu nasil yapabilecegini " +
     "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
-    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
+    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver. " +
+    "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
+    "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
   let link = null, linkler = null;
   for (let adim = 0; adim < 5; adim++) {
@@ -868,7 +871,9 @@ async function ajanClaude(env, sistem, son) {
     "\n\nSEN BIR AJANSIN: Eren bir is istediginde araclarini kullanarak yap; gerekirse birden fazla araci sirayla kullan. " +
     "Bir aracin sonucu HATA ise sebebini Eren'e kisaca ve cozumuyle soyle. Istenen isi yapacak aracin yoksa: bunu nasil yapabilecegini " +
     "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
-    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
+    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver. " +
+    "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
+    "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = son.map((m) => ({ role: m.role, content: m.content }));
   let link = null, linkler = null;
   for (let adim = 0; adim < 6; adim++) {
@@ -935,7 +940,8 @@ async function sohbetEt(env, metin, sesB64) {
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
       if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
-      if (komut(metin) || (!env.GROQ_API_KEY && metin.length < 600 && (await niyetBul(env, metin)))) return { duydum: metin, komut: true };
+      const kv = komut(metin);
+      if ((kv && ["onayla", "iptal", "geri_al", "puan_iyi", "puan_kotu"].includes(kv)) || (!env.GROQ_API_KEY && !env.ANTHROPIC_API_KEY && (kv || (metin.length < 600 && (await niyetBul(env, metin)))))) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
     } catch (e) {
       // Groq olmazsa Gemini ile dene
@@ -1131,7 +1137,10 @@ export default {
       const linkVar = (metin.match(/https?:\/\/\S+/g) || []).find((l) => !l.includes("/folders/"));
       if (linkVar) await kvYaz(env, "son_link", linkVar);
       let k = komut(metin);
-      if (!k && !env.GROQ_API_KEY && metin.length < 600) {
+      const ajanVar = !!(env.GROQ_API_KEY || env.ANTHROPIC_API_KEY);
+      const DOGRUDAN = ["onayla", "iptal", "geri_al", "puan_iyi", "puan_kotu"];
+      if (k && ajanVar && !DOGRUDAN.includes(k)) k = null; // geri kalan her sey yapay zekadan gecer
+      if (!k && !ajanVar && metin.length < 600) {
         const n = await niyetBul(env, metin);
         if (n && n.hazir) return Response.json({ cevap: n.hazir, beyin: "sistem" });
         if (n && n.drive) {
