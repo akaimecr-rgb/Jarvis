@@ -16,6 +16,8 @@ const SISTEM_TEMEL =
   "EREN'I ANLAMAK: Eren telefondan hizli yazar; harfleri karistirir ve kelimeleri bitisik/eksik yazar (ornek: 'bwn'=ben, 'yağtısya'=yaptı mı, " +
   "'konuimaları'=konusmalari, 'şuan'=su an, 'yapıcam'=yapacagim, 'jarvia'=Jarvis). Sesli mesajlarda da yazim hatasi olabilir. Yazim hatalarini dert etme, " +
   "kastettigini anla; gercekten emin olamiyorsan tek kisa soruyla netlestir. Eren 'abi', 'ya', 'pekala' gibi samimi konusur; sen de samimi ama saygili ol.\n" +
+  "INGILIZCE: Eren Ingilizce bilmez. Ona bir Ingilizce mesaj taslagi yazdiginda MUTLAKA altina Turkce cevirisini de ekle. " +
+  "Musteriden gelen Ingilizce mesajlari once Turkce ozetle, sonra istenirse cevap taslagini Ingilizce + Turkce ver.\n" +
   "ORNEKLER:\nEren: naber\nJarvis: Iyiyim Eren, sistemler calisiyor. Bugun neye bakiyoruz?\n" +
   "Eren: cok yoruldum bugun\nJarvis: Uzun bir vardiyaydi galiba. Istersen bugun sadece bekleyen isleri soyleyeyim, gerisini yarina birakiriz.\n" +
   "Eren: bu videoyu kurgula\nJarvis: Hemen baslatiyorum, on dakika icinde hazir olur.\n" +
@@ -1038,6 +1040,78 @@ async function bildirimEkle(env, baslik, metin, link) {
   await kvYaz(env, "bildirimler", l.slice(-30));
 }
 
+// ================= IS VE GELIR TAKIBI =================
+async function kurAl(env) {
+  const on = await kvOku(env, "kur", null);
+  if (on && Date.now() - on.zaman < 6 * 3600 * 1000) return on.usdtry;
+  try {
+    const j = await (await fetch("https://open.er-api.com/v6/latest/USD")).json();
+    const k = j.rates && j.rates.TRY;
+    if (k) { await kvYaz(env, "kur", { zaman: Date.now(), usdtry: k }); return k; }
+  } catch (e) {}
+  return on ? on.usdtry : null;
+}
+
+function paraCevir(miktar, birim, kur) {
+  if (birim === "TRY" || birim === "TL") return kur ? miktar / kur : 0;
+  return miktar; // USD varsay
+}
+
+async function isEkle(env, a) {
+  const isler = await kvOku(env, "isler", []);
+  let teslim = null;
+  if (a.teslim) {
+    try {
+      const j = JSON.parse(await sorGemini(env, 'Tarihi cozumle. Simdi ' + trSimdi().tarih + ' ' + trSimdi().saat + ' (Turkiye). SADECE JSON: {"zaman":"YYYY-MM-DDTHH:MM"} (saat yoksa 18:00)',
+        [{ role: "user", content: String(a.teslim) }], MODELLER(env).sohbet, { json: true }));
+      teslim = Date.parse(j.zaman + ":00+03:00") || null;
+    } catch (e) {}
+  }
+  const is = { id: crypto.randomUUID().slice(0, 6), musteri: String(a.musteri || "?"), aciklama: String(a.aciklama || "video"),
+    ucret: parseFloat(a.ucret || "0") || 0, birim: /tl|try|₺/i.test(a.birim || "") ? "TRY" : "USD", teslim, durum: "yapiliyor", eklendi: Date.now(), odendi: false };
+  isler.push(is);
+  await kvYaz(env, "isler", isler.slice(-200));
+  await gunlukEkle(env, `Yeni iş: ${is.musteri} - ${is.aciklama}` + (is.ucret ? ` (${is.ucret} ${is.birim})` : ""));
+  if (teslim) {
+    const y = await kvOku(env, "yapacaklar", []);
+    y.push({ id: "is" + is.id, zaman: teslim - 2 * 3600 * 1000, metin: `${is.musteri} teslimine 2 saat kaldı: ${is.aciklama}` });
+    await kvYaz(env, "yapacaklar", y);
+  }
+  return `Is kaydedildi (no ${is.id}): ${is.musteri}, ${is.aciklama}` + (is.ucret ? `, ${is.ucret} ${is.birim}` : "") + (teslim ? ", teslim " + new Date(teslim + 3 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") + " (2 saat once hatirlatacagim)" : "") + ".";
+}
+
+async function isGuncelle(env, a) {
+  const isler = await kvOku(env, "isler", []);
+  const ara = String(a.is || "").toLocaleLowerCase("tr");
+  const adaylar = isler.filter((i) => i.id === ara || i.musteri.toLocaleLowerCase("tr").includes(ara) || i.aciklama.toLocaleLowerCase("tr").includes(ara));
+  const is = (a.durum === "odendi" ? adaylar.filter((i) => !i.odendi) : adaylar.filter((i) => i.durum !== "teslim")).slice(-1)[0] || adaylar.slice(-1)[0];
+  if (!is) return "HATA: bu ise uyan kayit bulamadim. Once 'isler' ile listeyi kontrol et.";
+  if (a.durum === "teslim") { is.durum = "teslim"; is.teslimEdildi = Date.now(); }
+  if (a.durum === "odendi") { is.odendi = true; is.odemeZamani = Date.now(); if (a.ucret) is.ucret = parseFloat(a.ucret) || is.ucret; }
+  if (a.durum === "iptal") is.durum = "iptal";
+  await kvYaz(env, "isler", isler);
+  await gunlukEkle(env, `İş güncellendi: ${is.musteri} - ${is.aciklama} → ${a.durum}`);
+  return `${is.musteri} / ${is.aciklama} isi '${a.durum}' olarak guncellendi.`;
+}
+
+async function gelirOzeti(env) {
+  const isler = await kvOku(env, "isler", []);
+  const kur = await kurAl(env);
+  const ay = trSimdi().tarih.slice(0, 7);
+  const buAy = isler.filter((i) => i.odendi && new Date((i.odemeZamani || 0) + 3 * 3600 * 1000).toISOString().slice(0, 7) === ay);
+  const kazanc = buAy.reduce((t, i) => t + paraCevir(i.ucret, i.birim, kur), 0);
+  const bekleyen = isler.filter((i) => i.durum === "teslim" && !i.odendi);
+  const bekleyenTutar = bekleyen.reduce((t, i) => t + paraCevir(i.ucret, i.birim, kur), 0);
+  const devam = isler.filter((i) => i.durum === "yapiliyor");
+  const hedef = parseFloat(env.AYLIK_HEDEF || "800");
+  const gunKalan = new Date(Date.UTC(+ay.slice(0, 4), +ay.slice(5, 7), 0)).getUTCDate() - +trSimdi().tarih.slice(8, 10);
+  const metin = `Bu ay kazanc: ${kazanc.toFixed(0)} dolar` + (kur ? ` (yaklasik ${Math.round(kazanc * kur).toLocaleString("tr-TR")} TL, kur ${kur.toFixed(2)})` : "") +
+    `. Hedef ${hedef} dolarin %${Math.round((kazanc / hedef) * 100)}'i. Ayin bitmesine ${gunKalan} gun var. ` +
+    `Odemesi bekleyen ${bekleyen.length} is (${bekleyenTutar.toFixed(0)} dolar), devam eden ${devam.length} is.` +
+    (devam.length ? " Devam edenler: " + devam.map((i) => `${i.musteri} - ${i.aciklama}` + (i.teslim ? ` (teslim ${new Date(i.teslim + 3 * 3600 * 1000).toISOString().slice(5, 16).replace("T", " ")})` : "")).join("; ") : "");
+  return { metin, ekran: { panel: "isler", veri: { kazanc: Math.round(kazanc), hedef, bekleyen: Math.round(bekleyenTutar), isler: devam.concat(bekleyen).slice(0, 8).map((i) => ({ musteri: i.musteri, aciklama: i.aciklama, durum: i.odendi ? "ödendi" : i.durum === "teslim" ? "ödeme bekliyor" : "yapılıyor" })) } } };
+}
+
 // ================= 7/24 OTONOM DONGU =================
 async function saatlikIs(env) {
   const z = trSimdi();
@@ -1106,6 +1180,7 @@ async function sabahOzeti(env) {
   const parcalar = [];
   try { parcalar.push((await gunlukPlan(env)).metin); } catch (e) {}
   parcalar.push(await nelerYaptin(env));
+  try { parcalar.push((await gelirOzeti(env)).metin); } catch (e) {}
   try { const n = (await kvOku(env, "arastirma_notlari", [])).slice(-1)[0]; if (n) parcalar.push("Son arastirma (" + n.konu + "): " + n.ozet.slice(0, 500)); } catch (e) {}
   const bk = await kvOku(env, "bekleyen_kod", null);
   if (bk) parcalar.push("Onay bekleyen kod onerin: " + bk.ozet);
@@ -1149,6 +1224,10 @@ const ARACLAR = [
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
   ["takvime_ekle", "Google Takvim'e etkinlik ekler.", { istek: "etkinlik ve zamani, ornek: cuma 15te GKey toplantisi" }],
+  ["is_ekle", "Yeni bir musteri isini kaydeder (ucret ve teslim tarihiyle). Teslimden 2 saat once hatirlatir.",
+    { musteri: "musteri adi, ornek GKey", aciklama: "is, ornek 3 Valorant Shorts", ucret: "ucret sayisi", birim: "USD veya TL", teslim: "teslim zamani, ornek yarin 18:00" }],
+  ["is_guncelle", "Bir isin durumunu degistirir: teslim edildi, odendi veya iptal.", { is: "is no, musteri adi ya da aciklamadan bir kelime", durum: "teslim, odendi veya iptal", ucret: "odenen tutar (opsiyonel)" }],
+  ["gelir_ozeti", "Bu ayki kazanci, aylik hedefe (800 dolar) ne kadar kaldigini, bekleyen odemeleri ve devam eden isleri verir; ekranda gosterir.", {}],
   ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
     { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
 ].map(([name, description, alanlar]) => ({
@@ -1202,6 +1281,9 @@ async function aracCalistir(env, ad, a) {
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
     if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));
+    if (ad === "is_ekle") return await isEkle(env, a);
+    if (ad === "is_guncelle") return await isGuncelle(env, a);
+    if (ad === "gelir_ozeti") return await gelirOzeti(env);
     return "HATA: bilinmeyen arac";
   } catch (e) {
     return "HATA: " + e.message;
@@ -1476,6 +1558,7 @@ export default {
         gunluk: (await kvOku(env, "gunluk", [])).slice(-20),
         notSayisi: (await kvOku(env, "notlar", [])).length,
         konum: await konumAl(env),
+        hedef: await gelirOzeti(env).then((g) => g.ekran.veri).catch(() => null),
         drive: env.DRIVE_URL || (await driveBilgi(env).then((b) => b ? "https://drive.google.com/drive/folders/" + b.klasorler.kok : "").catch(() => "")),
       });
     }

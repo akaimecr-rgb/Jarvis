@@ -134,6 +134,7 @@ a{color:var(--cyan2)}
     <div class="satir"><div><span>BAĞLANTI</span><span id="d1">--</span></div><div class="bar"><i id="b1" style="width:0"></i></div></div>
     <div class="satir"><div><span>HAFIZA</span><span id="d2">--</span></div><div class="bar"><i id="b2" style="width:0"></i></div></div>
     <div class="satir"><div><span>GÖREV YÜKÜ</span><span id="d3">--</span></div><div class="bar"><i id="b3" style="width:0"></i></div></div>
+    <div class="satir"><div><span>AYLIK HEDEF</span><span id="d4">--</span></div><div class="bar"><i id="b4" style="width:0;background:linear-gradient(90deg,#15803d,#4ade80);box-shadow:0 0 8px #4ade80"></i></div></div>
   </div>
 
   <div class="alt-grid">
@@ -316,6 +317,7 @@ async function durumYenile(){
     var g=$("gunluk");if(!g.dataset.dolu){g.dataset.dolu=1;d.gunluk.forEach(function(x){gunlukYaz("",x.metin,x.zaman)})}
     var bag=Math.max(10,100-Math.round(gecikme/15));$("d1").textContent=bag+"%";$("b1").style.width=bag+"%";
     var haf=Math.min(100,d.notSayisi);$("d2").textContent=d.notSayisi+" NOT";$("b2").style.width=Math.max(4,haf)+"%";
+    if(d.hedef){var hy=Math.min(100,Math.round(d.hedef.kazanc/d.hedef.hedef*100));$("d4").textContent="$"+d.hedef.kazanc+" / $"+d.hedef.hedef;$("b4").style.width=Math.max(3,hy)+"%"}
     var yuk=Math.min(100,d.yapacaklar.length*12);$("d3").textContent=d.yapacaklar.length+" İŞ";$("b3").style.width=Math.max(4,yuk)+"%";
     try{if(window.Android&&Android.hatirlaticiKur)Android.hatirlaticiKur(JSON.stringify(d.yapacaklar.filter(function(y){return y.zaman&&y.zaman>Date.now()})))}catch(e){}
     hatirlatKontrol(d);
@@ -349,6 +351,9 @@ function panelGoster(e){
     (e.veri||[]).slice(0,8).forEach(function(d){var b=+d.buyukluk;var tr=satir("<td>"+k(String(d.zaman).slice(11,16))+"</td><td style='text-align:left;white-space:normal'>"+k(d.yer).slice(0,22)+"</td><td><span class='byk "+(b>=4.5?"k":b>=3.5?"y":"")+"'>"+b.toFixed(1)+"</span> <small>"+k(d.uzaklik)+"km</small></td>");tr.className="tik";tr.onclick=function(){haritaAc(d.lat,d.lon)}})}
   else if(e.panel==="yerler"){bas.textContent="YAKINDA • "+k(e.baslik||"");
     (e.veri||[]).slice(0,8).forEach(function(y){var tr=satir("<td><small>"+k(y.uzaklik)+"km</small></td><td style='text-align:left'>"+k(y.ad).slice(0,26)+"</td><td class='"+(y.acik===true?"acik'>AÇIK":y.acik===false?"kapali'>KAPALI":"bilinmez'>?")+"</td>");tr.className="tik";tr.onclick=function(){haritaAc(y.lat,y.lon,y.ad)}})}
+  else if(e.panel==="isler"){var v=e.veri||{};bas.textContent="İŞLER • $"+k(v.kazanc)+" / $"+k(v.hedef);
+    (v.isler||[]).forEach(function(i){satir("<td colspan='2' style='text-align:left'>"+k(i.musteri)+" • "+k(i.aciklama).slice(0,20)+"</td><td class='"+(i.durum==="ödendi"?"acik":i.durum==="ödeme bekliyor"?"bilinmez":"")+"'>"+k(i.durum)+"</td>")});
+    if(!(v.isler||[]).length)satir("<td colspan='3' class='bos'>Açık iş yok. Bekleyen ödeme: $"+k(v.bekleyen)+"</td>")}
   else if(e.panel==="plan"){bas.textContent="BUGÜNÜN PLANI";
     (e.veri||[]).slice(0,9).forEach(function(p){satir("<td>"+k(p.saat)+"</td><td colspan='2' style='text-align:left;white-space:normal'>"+k(p.metin)+"</td>")})}
   if(!tb.children.length)satir("<td class='bos'>Gösterilecek bir şey yok</td>");
