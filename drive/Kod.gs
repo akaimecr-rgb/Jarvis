@@ -1,5 +1,5 @@
 /**
- * Jarvis - Drive koprusu (Google Apps Script)
+ * Jarvis - Google koprusu: Drive + Gmail + Takvim (Google Apps Script)
  * 1) ANAHTAR'i kendi uydurdugun bir sifreyle degistir.
  * 2) Dagit > Yeni dagitim > Web uygulamasi > Calistiran: Ben, Erisim: Herkes.
  */
@@ -33,6 +33,9 @@ function cikti_(o) {
 }
 
 // Ilk calistirmada izin istemesi icin: bu fonksiyonu bir kez "Calistir" ile calistir.
+// (Gmail ve Takvim satirlari, Jarvis'in mailleri okuyup takvime ekleyebilmesi icin izin ister.)
 function izinVer() {
   Logger.log(JSON.stringify(kok_()));
+  Logger.log("Okunmamis mail: " + GmailApp.getInboxUnreadCount());
+  Logger.log("Takvim: " + CalendarApp.getDefaultCalendar().getName());
 }
