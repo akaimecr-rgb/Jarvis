@@ -304,6 +304,16 @@ async function kurguDurumu(env) {
       return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup indirebilirsin.", link: rel.html_url };
     } catch (e) {}
   }
+  if (r.status === "completed" && r.conclusion !== "success") {
+    try {
+      const j = await gh(env, `/repos/${SABLON_REPO}/contents/render.log?ref=render-log`);
+      const kayit = b64Coz(j.content);
+      if (kayit.includes("INDIRILEMEDI"))
+        return { cevap: "Kurgu olmadı çünkü videoyu indiremedim. Drive'da videonun paylaşımını 'Bağlantıya sahip herkes' yapıp tekrar 'kurgula' de.", link: r.html_url };
+      const satir = (kayit.split("\n").reverse().find((x) => /error|hata/i.test(x)) || "").slice(0, 160);
+      return { cevap: "Son kurgu hata verdi. " + (satir ? "Hata: " + satir : "Eren, Claude'a bu linki göster."), link: r.html_url };
+    } catch (e) {}
+  }
   return { cevap: `Son kurgu ${durum}.`, link: r.html_url };
 }
 
