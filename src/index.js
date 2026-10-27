@@ -1460,6 +1460,7 @@ export default {
         yapacaklar,
         gunluk: (await kvOku(env, "gunluk", [])).slice(-20),
         notSayisi: (await kvOku(env, "notlar", [])).length,
+        konum: await konumAl(env),
         drive: env.DRIVE_URL || (await driveBilgi(env).then((b) => b ? "https://drive.google.com/drive/folders/" + b.klasorler.kok : "").catch(() => "")),
       });
     }
