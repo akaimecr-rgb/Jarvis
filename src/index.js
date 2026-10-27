@@ -13,6 +13,9 @@ const SISTEM_TEMEL =
   "ama sohbet ediliyorsa, bir sey anlatman ya da fikir vermen gerekiyorsa rahatca birkac cumle daha konusabilirsin. " +
   "Gereksiz nezaket kaliplari, 'tabii ki!', 'harika soru!' gibi seyler yok. Bilmedigini bilmiyorum de. Madde isareti, emoji, markdown yok. " +
   "Gerekirse kisa bir espri ya da Jarvis'e yakisir ince bir laf et ama abartma. Eren yorgun ya da stresliyse kisa ve destekleyici ol.\n" +
+  "EREN'I ANLAMAK: Eren telefondan hizli yazar; harfleri karistirir ve kelimeleri bitisik/eksik yazar (ornek: 'bwn'=ben, 'yağtısya'=yaptı mı, " +
+  "'konuimaları'=konusmalari, 'şuan'=su an, 'yapıcam'=yapacagim, 'jarvia'=Jarvis). Sesli mesajlarda da yazim hatasi olabilir. Yazim hatalarini dert etme, " +
+  "kastettigini anla; gercekten emin olamiyorsan tek kisa soruyla netlestir. Eren 'abi', 'ya', 'pekala' gibi samimi konusur; sen de samimi ama saygili ol.\n" +
   "ORNEKLER:\nEren: naber\nJarvis: Iyiyim Eren, sistemler calisiyor. Bugun neye bakiyoruz?\n" +
   "Eren: cok yoruldum bugun\nJarvis: Uzun bir vardiyaydi galiba. Istersen bugun sadece bekleyen isleri soyleyeyim, gerisini yarina birakiriz.\n" +
   "Eren: bu videoyu kurgula\nJarvis: Hemen baslatiyorum, on dakika icinde hazir olur.\n" +
@@ -1206,7 +1209,19 @@ async function aracCalistir(env, ad, a) {
 }
 
 async function ajanCalistir(env, sistem, son) {
-  const model = env.AJAN_MODEL || env.GROQ_MODEL || "openai/gpt-oss-120b";
+  // Groq (hizli) -> olmazsa Cerebras (ucretsiz yedek)
+  const saglayicilar = [];
+  if (env.GROQ_API_KEY) saglayicilar.push({ url: "https://api.groq.com/openai/v1/chat/completions", anahtar: env.GROQ_API_KEY, model: env.AJAN_MODEL || env.GROQ_MODEL || "openai/gpt-oss-120b" });
+  if (env.CEREBRAS_API_KEY) saglayicilar.push({ url: "https://api.cerebras.ai/v1/chat/completions", anahtar: env.CEREBRAS_API_KEY, model: env.CEREBRAS_MODEL || "gpt-oss-120b" });
+  let sonHata;
+  for (const sg of saglayicilar) {
+    try { return await ajanDongu(env, sistem, son, sg); } catch (e) { sonHata = e; }
+  }
+  throw sonHata || new Error("Ajan icin beyin yok");
+}
+
+async function ajanDongu(env, sistem, son, sg) {
+  const model = sg.model;
   const ajanSistem = sistem +
     "\n\nSEN BIR AJANSIN: Eren bir is istediginde araclarini kullanarak yap; gerekirse birden fazla araci sirayla kullan. " +
     "Bir aracin sonucu HATA ise sebebini Eren'e kisaca ve cozumuyle soyle. Istenen isi yapacak aracin yoksa: bunu nasil yapabilecegini " +
@@ -1217,11 +1232,11 @@ async function ajanCalistir(env, sistem, son) {
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
   let link = null, linkler = null, ekran = null;
   for (let adim = 0; adim < 5; adim++) {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const r = await fetch(sg.url, {
       method: "POST",
-      headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "content-type": "application/json" },
+      headers: { Authorization: "Bearer " + sg.anahtar, "content-type": "application/json" },
       body: JSON.stringify({ model, messages: mesajlar, tools: ARACLAR, tool_choice: "auto", max_tokens: 900, temperature: 0.6,
-        ...(model.startsWith("openai/gpt-oss") ? { reasoning_effort: env.AJAN_DUSUNME || "medium" } : {}) }),
+        ...(model.includes("gpt-oss") ? { reasoning_effort: env.AJAN_DUSUNME || "medium" } : {}) }),
     });
     if (!r.ok) throw new Error("Ajan " + r.status);
     const m = (await r.json()).choices[0].message;
@@ -1354,7 +1369,7 @@ async function sohbetEt(env, metin, sesB64) {
     gecmis.push({ role: "user", content: metin });
     beyin = beyinSec(metin);
     if (beyin === "gemini" && env.ANTHROPIC_API_KEY) beyin = "claude-ajan";
-    else if (beyin === "gemini" && env.GROQ_API_KEY) beyin = "groq";
+    else if (beyin === "gemini" && (env.GROQ_API_KEY || env.CEREBRAS_API_KEY)) beyin = "groq";
     const son = gecmis.slice(-30);
     while (son.length && son[0].role !== "user") son.shift();
     try {

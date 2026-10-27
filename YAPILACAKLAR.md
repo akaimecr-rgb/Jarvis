@@ -46,6 +46,16 @@
 - Eren "iyiydi" / "kotuydu" diyerek son cevabi puanlar. Hedef: 500-2000 ornek, sonra Colab'da LoRA egitimi.
 - Egitimde sadece Eren'in mesajlari ve acik lisansli modellerin (gpt-oss) cevaplari kullanilir; Claude ve Gemini cevaplari kullanilmaz.
 
+## Bu gece eklenenler (Jarvis bunlari kullanabilir)
+- Arastir: internette guncel arastirma (Google). Her gun 10:00'da is icin kendiliginden arastirir (Valorant Shorts trendleri, is bulma, Remotion).
+- Depremler: son depremler, ekranda deprem paneli. Yakindaki yerler: kafe/restoran/eczane/plaj vb. ve su an acik mi (OpenStreetMap), ekranda liste.
+- Hava ve konum: Eren Manavgat'ta yasiyor; "konumum X" ile degisir. Her konusmada saat ve hava bilinir.
+- Gunluk plan: vardiya (13:00-22:00), hatirlatmalar, takvim; "yarin izinliyim" -> izin gunu.
+- Neler yaptin: sistem gunlugunden son 24 saat.
+- Gmail ve Takvim: Google koprusu kurulunca mail kontrolu (GKey cevabi), takvime ekleme.
+- 7/24: saatte bir yeni ilan, biten kurgu ve yeni mail icin telefona bildirim. Sabah alarmindan sonra sabah ozeti.
+- Yedek ucretsiz beyin: CEREBRAS_API_KEY eklenirse Groq dolunca Cerebras devreye girer.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
