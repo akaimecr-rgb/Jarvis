@@ -10,8 +10,8 @@ const SISTEM_TEMEL =
   "Madde isareti, emoji veya markdown kullanma. " +
   "Eren sana kalici olarak hatirlaman gereken bir sey soylerse, " +
   "cevabinin en sonuna [HATIRLA: kisa not] ekle. Bu etiketi baska durumda kullanma. " +
-  "COK ONEMLI: Asla yapmadigin bir isi yaptim deme ve bilmedigin bir sonucu uydurma. Google Drive'a HENUZ BAGLI DEGILSIN: " +
-  "Drive'a dosya koyamaz, Drive'da klasor acamaz, Drive'daki dosyalari goremezsin. Kurgu, ilan, stil gibi islerin sonucunu sadece " +
+  "COK ONEMLI: Asla yapmadigin bir isi yaptim deme ve bilmedigin bir sonucu uydurma. Drive islemlerini sadece komutlarla yaparsin, " +
+  "sohbet sirasinda Drive'a bir sey koydugunu ya da gordugunu soyleme. Kurgu, ilan, stil gibi islerin sonucunu sadece " +
   "komutlarin dondurdugu bilgiyle bilirsin; Eren kurgunun durumunu sorarsa 'kurgu durumu' demesini soyle.";
 
 function beyinSec(metin) {
@@ -222,7 +222,7 @@ async function geriAl(env) {
 }
 
 async function kurgula(env, metin) {
-  const linkler = metin.match(/https?:\/\/\S+/g) || [];
+  const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
   const malzeme = linkler.find((l) => l.includes("/folders/")) || "";
   const video = linkler.find((l) => !l.includes("/folders/"));
   if (!video) return "Video linkini de yaz. Örnek: kurgula shorts <video linki> malzeme <klasör linki>";
@@ -230,7 +230,7 @@ async function kurgula(env, metin) {
   const stil = ((metin.match(/(?:stil|müşteri|musteri)\s+([a-z0-9-]+)/i) || [])[1] || "").toLowerCase();
   const talimat = metin
     .replace(/(?:stil|müşteri|musteri)\s+[a-z0-9-]+/i, "")
-    .replace(/https?:\/\/\S+/g, "")
+    .replace(/(?:https?:\/\/|drive:)\S+/g, "")
     .replace(/^\s*kurgula\s*/i, "")
     .replace(/\b(shorts|uzun|malzeme)\b/gi, "")
     .replace(/\s+/g, " ")
@@ -245,7 +245,7 @@ async function kurgula(env, metin) {
 }
 
 async function stilCikar(env, metin) {
-  const linkler = metin.match(/https?:\/\/\S+/g) || [];
+  const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
   if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
   const ad = ((metin.match(/\bad\s+([a-z0-9-]+)/i) || [])[1] || "").toLowerCase();
@@ -301,6 +301,11 @@ async function kurguDurumu(env) {
   if (r.status === "completed" && r.conclusion === "success") {
     try {
       const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${r.run_number}`);
+      try {
+        const kayit = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/render.log?ref=render-log`)).content);
+        const did = (kayit.match(/DRIVE_ID: (\S+)/) || [])[1];
+        if (did) return { cevap: "Son kurgu bitti. Video Drive'da Jarvis/bitti klasöründe.", link: "https://drive.google.com/file/d/" + did + "/view" };
+      } catch (e) {}
       return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup indirebilirsin.", link: rel.html_url };
     } catch (e) {}
   }
@@ -377,14 +382,88 @@ async function alarmAyari(env, metin) {
   return (gun === 0 ? "Bugün" : gun === 1 ? "Yarın" : "Öbür gün") + " alarm çalmayacak.";
 }
 
+// ---------------- Google Drive (Apps Script koprusu ile) ----------------
+async function driveBilgi(env) {
+  if (!env.DRIVE_SCRIPT_URL || !env.DRIVE_ANAHTAR) return null;
+  const on = await kvOku(env, "drive_token", null);
+  if (on && Date.now() - on.zaman < 45 * 60 * 1000) return on;
+  const r = await fetch(env.DRIVE_SCRIPT_URL + "?islem=token&anahtar=" + encodeURIComponent(env.DRIVE_ANAHTAR), { redirect: "follow" });
+  if (!r.ok) throw new Error("Drive köprüsü " + r.status);
+  const j = await r.json();
+  if (!j.token) throw new Error("Drive köprüsü: " + (j.hata || "token yok"));
+  const bilgi = { zaman: Date.now(), token: j.token, klasorler: j.klasorler };
+  await kvYaz(env, "drive_token", bilgi);
+  return bilgi;
+}
+
+async function driveApi(env, yol, secenek = {}) {
+  const b = await driveBilgi(env);
+  if (!b) throw new Error("Drive bağlı değil");
+  const r = await fetch("https://www.googleapis.com/drive/v3/" + yol, {
+    ...secenek,
+    headers: { Authorization: "Bearer " + b.token, "content-type": "application/json", ...(secenek.headers || {}) },
+  });
+  if (!r.ok) throw new Error("Drive " + r.status);
+  return r.json();
+}
+
+async function driveListe(env, klasorAdi) {
+  const b = await driveBilgi(env);
+  const id = b.klasorler[klasorAdi] || b.klasorler.ham;
+  const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+  const j = await driveApi(env, `files?q=${q}&orderBy=modifiedTime desc&pageSize=50&fields=files(id,name,mimeType,size,modifiedTime)`);
+  return j.files || [];
+}
+
+async function driveBul(env, ad) {
+  const b = await driveBilgi(env);
+  const temiz = ad.replace(/['\\]/g, "").trim();
+  if (!temiz || /^(son|en son|yeni|en yeni)( video)?$/i.test(temiz)) {
+    const l = (await driveListe(env, "ham")).filter((f) => (f.mimeType || "").startsWith("video"));
+    return l[0] || null;
+  }
+  const q = encodeURIComponent(`name contains '${temiz}' and trashed=false and mimeType contains 'video'`);
+  const j = await driveApi(env, `files?q=${q}&orderBy=modifiedTime desc&pageSize=5&fields=files(id,name,mimeType,size,modifiedTime,parents)`);
+  return (j.files || [])[0] || null;
+}
+
+async function driveKlasorAc(env, ad) {
+  const b = await driveBilgi(env);
+  const j = await driveApi(env, "files?fields=id,name", {
+    method: "POST",
+    body: JSON.stringify({ name: ad, mimeType: "application/vnd.google-apps.folder", parents: [b.klasorler.kok] }),
+  });
+  await gunlukEkle(env, "Drive'da klasör açıldı: " + ad);
+  return j;
+}
+
+async function driveIslem(env, j) {
+  if (!env.DRIVE_SCRIPT_URL) return "Drive henüz bağlı değil. Kurulum adımlarını Claude'dan iste.";
+  const alt = j.alt || "listele";
+  if (alt === "klasor_ac") {
+    if (!j.ad) return "Klasörün adı ne olsun?";
+    await driveKlasorAc(env, j.ad);
+    return `Drive'daki Jarvis klasörünün içine "${j.ad}" klasörünü açtım.`;
+  }
+  if (alt === "ara") {
+    const f = await driveBul(env, j.ad || "");
+    return f ? `Buldum: ${f.name}.` : "Bu adla bir video bulamadım.";
+  }
+  const klasor = ["ham", "ornek", "malzeme", "bitti"].includes(j.klasor) ? j.klasor : "ham";
+  const l = await driveListe(env, klasor);
+  if (!l.length) return `Jarvis/${klasor} klasörü boş.`;
+  return `Jarvis/${klasor} klasöründe ${l.length} dosya var: ` + l.slice(0, 8).map((f) => f.name).join(", ") + ".";
+}
+
 // ---------------- Niyet anlama: Eren ne istiyor? ----------------
 async function niyetBul(env, metin) {
   const sonLink = await kvOku(env, "son_link", "");
   const sistem =
     "Eren'in mesajini oku ve hangi islemi istedigini sec. SADECE JSON don. Araclar:\n" +
-    "kurgula: bir videoyu kurgulamak/editlemek/render almak istiyor. Alanlar: format (shorts|uzun), link (video linki; mesajda yoksa bos), malzeme (klasor linki), musteri (stil adi), istek (ozel istekleri).\n" +
+    "kurgula: bir videoyu kurgulamak/editlemek/render almak istiyor. Alanlar: format (shorts|uzun), link (video linki; mesajda yoksa bos), dosya (Drive'daki video adi veya 'son'), malzeme (klasor linki), musteri (stil adi), istek (ozel istekleri).\n" +
+    "drive: Drive'daki dosyalara bakmak/aramak/klasor acmak. Alanlar: alt (listele|ara|klasor_ac), klasor (ham|ornek|malzeme|bitti), ad.\n" +
     "kurgu_durumu: kurgunun/videonun durumunu, bitip bitmedigini, nerede oldugunu soruyor.\n" +
-    "stil: ornek videolardan stil cikarmak istiyor. Alanlar: format, ad, linkler (liste).\n" +
+    "stil: ornek videolardan stil cikarmak istiyor. Alanlar: format, ad, linkler (liste; linki yoksa ve ornek klasorunu kastediyorsa bos birak).\n" +
     "ilanlar: bulunan is ilanlarini goruyor. ilan_ara: simdi ilan aramasini istiyor. basvuru: bir ilana basvuru yazilmasini istiyor (alan: numara).\n" +
     "hatirlat: belli bir zamanda hatirlatma istiyor. not: bir seyi not almak/listeye eklemek istiyor (alan: istek = not metni). temizle: yapilacaklar listesini temizlemek.\n" +
     "alarm: sabah alarmini acmak/kapatmak/atlamak. kod: Jarvis'in kendi kodunu/ozelligini/ekranini degistirmek (alan: istek). gelistir: Jarvis'in kendini gelistirmesi.\n" +
@@ -412,15 +491,25 @@ async function niyetBul(env, metin) {
     try { j = JSON.parse(await sorGemini(env, sistem, mesaj, MODELLER(env).sohbet, { json: true })); } catch (e) { return null; }
   }
   if (!j || !j.arac || j.arac === "sohbet") return null;
+  if (j.arac === "drive") return { drive: j };
   const linkler = metin.match(/https?:\/\/\S+/g) || [];
   if (j.arac === "kurgula") {
-    const link = (j.link && j.link.startsWith("http") ? j.link : "") || linkler.find((l) => !l.includes("/folders/")) || sonLink;
+    let link = (j.link && j.link.startsWith("http") ? j.link : "") || linkler.find((l) => !l.includes("/folders/"));
+    if (!link && env.DRIVE_SCRIPT_URL && (j.dosya || !sonLink)) {
+      const f = await driveBul(env, j.dosya || "son").catch(() => null);
+      if (f) link = "drive:" + f.id + ":" + f.name.replace(/\s+/g, "_");
+    }
+    link = link || sonLink;
     if (!link) return { hazir: "Hangi videoyu kurgulayayım? Drive linkini yazarak gönder (paylaşım 'Bağlantıya sahip herkes' olsun)." };
     const malzeme = j.malzeme || linkler.find((l) => l.includes("/folders/")) || "";
     return { k: "kurgula", metin: ["kurgula", j.format === "uzun" ? "uzun" : "shorts", link, malzeme, j.musteri ? "müşteri " + j.musteri : "", j.istek || ""].join(" ") };
   }
   if (j.arac === "stil") {
-    const ls = j.linkler && j.linkler.length ? j.linkler : linkler;
+    let ls = j.linkler && j.linkler.length ? j.linkler : linkler;
+    if (!ls.length && env.DRIVE_SCRIPT_URL) {
+      ls = (await driveListe(env, "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 4).map((f) => "drive:" + f.id);
+      if (!ls.length) return { hazir: "Drive'daki Jarvis/ornek klasörü boş. Örnek videoları oraya koy, sonra tekrar söyle." };
+    }
     return { k: "stil", metin: ["stil çıkar", j.format === "uzun" ? "uzun" : "shorts", j.ad ? "ad " + j.ad : "", ...ls].join(" ") };
   }
   if (j.arac === "basvuru") return { k: "basvuru", metin: "başvuru yaz " + (j.numara || 1) };
@@ -742,7 +831,7 @@ export default {
         yapacaklar,
         gunluk: (await kvOku(env, "gunluk", [])).slice(-20),
         notSayisi: (await kvOku(env, "notlar", [])).length,
-        drive: env.DRIVE_URL || "",
+        drive: env.DRIVE_URL || (await driveBilgi(env).then((b) => b ? "https://drive.google.com/drive/folders/" + b.klasorler.kok : "").catch(() => "")),
       });
     }
     if (request.method === "POST" && url.pathname === "/hatirlatildi") {
@@ -813,6 +902,10 @@ export default {
       if (!k && metin.length < 600) {
         const n = await niyetBul(env, metin);
         if (n && n.hazir) return Response.json({ cevap: n.hazir, beyin: "sistem" });
+        if (n && n.drive) {
+          try { return Response.json({ cevap: await driveIslem(env, n.drive), beyin: "sistem" }); }
+          catch (e) { return Response.json({ cevap: "Drive'a ulaşamadım: " + e.message, beyin: "sistem" }); }
+        }
         if (n) { k = n.k; metin = n.metin; }
       }
       if (k) {
