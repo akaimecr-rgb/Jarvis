@@ -520,6 +520,31 @@ async function niyetBul(env, metin) {
   return null;
 }
 
+async function puanVer(env, puan) {
+  const v = await kvOku(env, "veri_bugun", []);
+  if (!v.length) return "Puanlayacak bir cevap bulamadım.";
+  v[v.length - 1].puan = puan;
+  await kvYaz(env, "veri_bugun", v);
+  return puan > 0 ? "Teşekkürler, bunu iyi örnek olarak kaydettim." : "Anladım, bu cevabı kötü örnek olarak işaretledim. Doğrusunu söylersen onu da kaydederim.";
+}
+
+// Gunun konusmalarini egitim verisi olarak GitHub'a ekler (veri/YYYY-AA.jsonl)
+async function veriKaydet(env) {
+  const v = await kvOku(env, "veri_bugun", []);
+  if (!v.length || !env.GITHUB_TOKEN) return 0;
+  const yol = "veri/" + bugunTR(0).slice(0, 7) + ".jsonl";
+  let icerik = "", sha;
+  try { const d = await dosyaOku(env, yol); icerik = d.icerik; sha = d.sha; } catch (e) {}
+  icerik += v.map((x) => JSON.stringify(x)).join("\n") + "\n";
+  await gh(env, `/repos/${REPO}/contents/${yol}`, {
+    method: "PUT",
+    body: JSON.stringify({ message: "Egitim verisi " + bugunTR(0) + " (" + v.length + " ornek)", content: b64Yap(icerik), ...(sha ? { sha } : {}) }),
+  });
+  await kvYaz(env, "veri_bugun", []);
+  await gunlukEkle(env, "Eğitim verisine " + v.length + " konuşma eklendi");
+  return v.length;
+}
+
 function komut(metin) {
   const m = metin.toLocaleLowerCase("tr").trim().replace(/[.!?]+$/, "");
   if (m === "onayla" || m === "onaylıyorum") return "onayla";
@@ -531,6 +556,8 @@ function komut(metin) {
   if (m === "ilanlar" || m === "yeni ilanlar" || m.includes("ilan var mı")) return "ilanlar";
   if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
   if (m === "ilan ara") return "ilan_ara";
+  if (/^(bu )?(cevap |cevabın )?(iyiydi|güzeldi|süperdi|harikaydı|doğruydu)$/.test(m)) return "puan_iyi";
+  if (/^(bu )?(cevap |cevabın )?(kötüydü|yanlıştı|berbattı|olmadı)$/.test(m)) return "puan_kotu";
   if (m.includes("kendini geliştir") || m.includes("kendini gelistir")) return "gelistir";
   if (m.includes("alarm")) return "alarm";
   if (m.includes("hatırlat") || m.includes("hatirlat")) return "hatirlat";
@@ -892,12 +919,18 @@ async function sohbetEt(env, metin, sesB64) {
   if (yeni.length) await kvYaz(env, "notlar", notlar.concat(yeni).slice(-100));
   gecmis.push({ role: "assistant", content: cevap });
   await kvYaz(env, "gecmis", gecmis.slice(-30));
+  if (duydum && cevap) {
+    const v = await kvOku(env, "veri_bugun", []);
+    v.push({ z: Date.now(), eren: duydum, jarvis: cevap, kaynak: beyin === "groq" ? "gpt-oss" : beyin, puan: 0 });
+    await kvYaz(env, "veri_bugun", v.slice(-300));
+  }
   return { duydum, cevap, beyin, link: ajanLink };
 }
 
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
+      try { await veriKaydet(env); } catch (e) { await gunlukEkle(env, "Veri kaydı olmadı: " + e.message); }
       try {
         const sonuc = await kendiniGelistir(env);
         if (sonuc.startsWith("Kendimi geliştirmek")) {
@@ -1005,7 +1038,7 @@ export default {
         if (n) { k = n.k; metin = n.metin; }
       }
       if (k) {
-        if (!env.GITHUB_TOKEN && !["alarm", "hatirlat", "not", "temizle"].includes(k)) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
+        if (!env.GITHUB_TOKEN && !["alarm", "hatirlat", "not", "temizle", "puan_iyi", "puan_kotu"].includes(k)) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
         try {
           let c;
           if (k === "onayla") c = await kodOnayla(env);
@@ -1015,6 +1048,8 @@ export default {
             await kvYaz(env, "bekleyen_kod", null); c = "Vazgeçtim, kod değişmedi.";
           }
           else if (k === "gelistir") c = await kendiniGelistir(env);
+          else if (k === "puan_iyi") c = await puanVer(env, 1);
+          else if (k === "puan_kotu") c = await puanVer(env, -1);
           else if (k === "geri_al") c = await geriAl(env);
           else if (k === "kod") c = await kodIstegi(env, metin.replace(/^kod:\s*/i, ""));
           else if (k === "kurgula") c = await kurgula(env, metin);

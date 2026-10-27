@@ -37,6 +37,11 @@
 - Jarvis artik ajan: istegi anlar, araclarini (kurgula, kurgu durumu, stil, ilanlar, basvuru, hatirlat, not, alarm, drive, kendini gelistir) sirayla kullanir.
 - Yapamadigi bir sey istenirse nasil yapabilecegini anlatir ve kendini_gelistir ile o ozelligi hazirlar; Eren "onayla" deyince eklenir.
 
+## Kendi model icin veri toplama (basladi)
+- Her konusma gunluk kaydedilir, her gece 03:00'te GitHub Jarvis deposunda veri/YYYY-AA.jsonl dosyasina eklenir.
+- Eren "iyiydi" / "kotuydu" diyerek son cevabi puanlar. Hedef: 500-2000 ornek, sonra Colab'da LoRA egitimi.
+- Egitimde sadece Eren'in mesajlari ve acik lisansli modellerin (gpt-oss) cevaplari kullanilir; Claude ve Gemini cevaplari kullanilmaz.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
