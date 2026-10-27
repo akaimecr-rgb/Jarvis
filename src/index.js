@@ -299,7 +299,17 @@ async function ilanAra(env) {
   return "İlan aramayı başlattım. 3-5 dakika sonra 'ilanlar' de.";
 }
 
-async function kurguDurumu(env) {
+async function videoImza(env, run) {
+  const v = new TextEncoder().encode((env.APP_SECRET || "") + ":video:" + run);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", v));
+  return [...h.slice(0, 10)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function videoLinki(env, run, kok) {
+  return kok + "/video/" + run + "?t=" + (await videoImza(env, run));
+}
+
+async function kurguDurumu(env, kok) {
   const j = await gh(env, `/repos/${SABLON_REPO}/actions/runs?per_page=1`);
   const r = j.workflow_runs && j.workflow_runs[0];
   if (!r) return "Henüz bir kurgu çalışması yok.";
@@ -313,7 +323,7 @@ async function kurguDurumu(env) {
         const did = (kayit.match(/DRIVE_ID: (\S+)/) || [])[1];
         if (did) return { cevap: "Son kurgu bitti. Video Drive'da Jarvis/bitti klasöründe.", link: "https://drive.google.com/file/d/" + did + "/view" };
       } catch (e) {}
-      return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup indirebilirsin.", link: rel.html_url };
+      return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup izleyebilir ya da indirebilirsin.", link: kok ? await videoLinki(env, r.run_number, kok) : rel.html_url };
     } catch (e) {}
   }
   if (r.status === "completed" && r.conclusion !== "success") {
@@ -773,7 +783,7 @@ async function aracCalistir(env, ad, a) {
       if (!link) return "HATA: video bulunamadi. Eren'den Drive linkini (yazarak) iste veya videoyu Drive Jarvis/ham klasorune koymasini soyle.";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, s(a.malzeme), a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
-    if (ad === "kurgu_durumu") { const d = await kurguDurumu(env); return typeof d === "string" ? d : { metin: d.cevap, link: d.link }; }
+    if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link }; }
     if (ad === "stil_cikar") {
       let ls = s(a.linkler).split(/\s+/).filter(Boolean);
       if (!ls.length && env.DRIVE_SCRIPT_URL) ls = (await driveListe(env, "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 4).map((f) => "drive:" + f.id);
@@ -999,6 +1009,25 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
+    env.__kok = url.origin;
+    const vm = url.pathname.match(/^\/video\/(\d+)$/);
+    if (request.method === "GET" && vm) {
+      if (!env.GITHUB_TOKEN || url.searchParams.get("t") !== (await videoImza(env, vm[1]))) return new Response("Yetkisiz", { status: 401 });
+      try {
+        const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${vm[1]}`);
+        const asset = (rel.assets || []).find((a) => a.name.endsWith(".mp4"));
+        if (!asset) return new Response("Video bulunamadi", { status: 404 });
+        const r = await fetch(asset.url, {
+          headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" },
+          redirect: "manual",
+        });
+        const yer = r.headers.get("location");
+        if (yer) return Response.redirect(yer, 302);
+        return new Response(r.body, { headers: { "content-type": "video/mp4" } });
+      } catch (e) {
+        return new Response("Hata: " + e.message, { status: 502 });
+      }
+    }
     if (request.method === "GET" && url.pathname === "/durum") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
         return new Response("Yetkisiz", { status: 401 });
@@ -1115,7 +1144,7 @@ export default {
             return Response.json(typeof b === "string" ? { cevap: b, beyin: "sistem" } : { ...b, beyin: "sistem" });
           }
           else if (k === "kurgu_durumu") {
-            const d = await kurguDurumu(env);
+            const d = await kurguDurumu(env, env.__kok);
             return Response.json({ cevap: typeof d === "string" ? d : d.cevap, link: d.link, beyin: "sistem" });
           }
           return Response.json({ cevap: c, beyin: "sistem" });
