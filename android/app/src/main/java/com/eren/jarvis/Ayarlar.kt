@@ -127,3 +127,20 @@ fun hatirlatmaBildirimi(c: Context, metin: String) {
         .build()
     c.getSystemService(NotificationManager::class.java).notify(metin.hashCode(), n)
 }
+
+fun bildirimGoster(c: Context, baslik: String, metin: String, link: String) {
+    kanallariKur(c)
+    val hedef = if (link.isNotEmpty()) Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                else Intent(c, JarvisActivity::class.java)
+    hedef.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val pi = PendingIntent.getActivity(c, (baslik + metin).hashCode(), hedef, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val n = android.app.Notification.Builder(c, KANAL_ACIL)
+        .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+        .setContentTitle(baslik)
+        .setContentText(metin)
+        .setStyle(android.app.Notification.BigTextStyle().bigText(metin))
+        .setContentIntent(pi)
+        .setAutoCancel(true)
+        .build()
+    c.getSystemService(NotificationManager::class.java).notify((baslik + metin).hashCode(), n)
+}
