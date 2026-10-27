@@ -23,6 +23,12 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!intent.getBooleanExtra("ayar", false) && Ayarlar.sifre(this).isNotEmpty()) {
+            servisKomutu(this, WakeService.BASLAT)
+            startActivity(Intent(this, JarvisActivity::class.java))
+            finish()
+            return
+        }
         val izinler = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) izinler.add(Manifest.permission.POST_NOTIFICATIONS)
         requestPermissions(izinler.toTypedArray(), 1)
@@ -62,7 +68,8 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 34) k.addView(dugme("4) Tam ekran bildirim izni") {
             startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
         })
-        k.addView(dugme("Jarvis'i şimdi aç") { jarvisiAc(this, "serbest") })
+        k.addView(dugme("Jarvis ekranına dön") { startActivity(Intent(this, JarvisActivity::class.java)); finish() })
+        k.addView(dugme("Konuşmayı şimdi başlat") { jarvisiAc(this, "serbest") })
         k.addView(dugme("Alarmı şimdi dene") { jarvisiAc(this, "alarm") })
         k.addView(dugme("Dinlemeyi aç") { servisKomutu(this, WakeService.BASLAT); k.postDelayed({ guncelle() }, 1500) })
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })

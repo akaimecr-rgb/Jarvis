@@ -51,18 +51,24 @@ class JarvisActivity : Activity() {
     }
 
     private fun yukle(i: Intent?) {
-        val mod = i?.getStringExtra("mod") ?: "serbest"
+        val mod = i?.getStringExtra("mod") ?: ""
         val am = getSystemService(AudioManager::class.java)
         if (mod == "alarm") {
             if (eskiSes < 0) eskiSes = am.getStreamVolume(AudioManager.STREAM_MUSIC)
             am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
         }
-        web.loadUrl(JARVIS_URL + "?mod=" + mod)
+        web.loadUrl(if (mod.isEmpty()) JARVIS_URL else JARVIS_URL + "?mod=" + mod)
     }
 
     inner class Kopru {
         @JavascriptInterface fun bitti() { runOnUiThread { finish() } }
         @JavascriptInterface fun sifre(): String = Ayarlar.sifre(this@JarvisActivity)
+        @JavascriptInterface fun ayarlar() {
+            runOnUiThread {
+                startActivity(Intent(this@JarvisActivity, MainActivity::class.java).putExtra("ayar", true))
+            }
+        }
+        @JavascriptInterface fun hatirlaticiKur(json: String) { hatirlaticilariKur(this@JarvisActivity, json) }
     }
 
     override fun onDestroy() {

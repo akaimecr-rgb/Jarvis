@@ -1,3 +1,4 @@
+import SAYFA from "./sayfa.html";
 // Jarvis - Cloudflare Worker (GitHub ile otomatik yayinlanir)
 // Secrets: GEMINI_API_KEY, OPENROUTER_API_KEY, APP_SECRET (istege bagli: ANTHROPIC_API_KEY)
 // KV baglantisi: HAFIZA
@@ -84,182 +85,8 @@ async function sorClaude(env, sistem, gecmis) {
   return j.content[0].text;
 }
 
-const SAYFA = `<!doctype html>
-<html lang="tr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jarvis</title>
-<style>
-body{margin:0;background:#05080f;color:#e6f1ff;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
-#ust{display:flex;justify-content:center;padding:20px 0 8px}
-#cember{width:110px;height:110px;border-radius:50%;border:3px solid #38bdf8;box-shadow:0 0 25px #38bdf8,inset 0 0 25px #0ea5e9;transition:.3s}
-#cember.aktif{transform:scale(1.12);box-shadow:0 0 50px #38bdf8,inset 0 0 40px #38bdf8}
-#log{flex:1;overflow-y:auto;padding:12px 16px;font-size:16px;line-height:1.5}
-.sen{color:#7dd3fc;margin:8px 0}.jarvis{margin:8px 0}
-#alt{display:flex;gap:8px;padding:12px}
-#yazi{flex:1;padding:14px;border-radius:14px;border:1px solid #1e3a5f;background:#0b1424;color:#fff;font-size:16px}
-#gonder,#btn{border:none;border-radius:14px;color:#fff;font-size:18px;padding:0 18px}
-#gonder{background:#1e3a5f}#btn{background:#2563eb}#btn.dinliyor{background:#dc2626}
-</style></head><body>
-<div id="ust"><div id="cember"></div></div>
-<div id="log"></div>
-<div id="alt"><input id="yazi" placeholder="Yaz veya mikrofona bas"><button id="gonder">&#10148;</button><button id="btn">Mik</button></div>
-<script>
-var log=document.getElementById("log"),btn=document.getElementById("btn"),cember=document.getElementById("cember"),yazi=document.getElementById("yazi");
-var sifre=null;try{if(window.Android&&Android.sifre)sifre=Android.sifre()||null}catch(e){}
-if(!sifre){try{sifre=localStorage.getItem("jarvis_sifre")}catch(e){}}
-if(!sifre){sifre=prompt("Jarvis sifresi:")||"";try{localStorage.setItem("jarvis_sifre",sifre)}catch(e){}}
-function ekle(s,t){var d=document.createElement("div");d.className=s;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight}
-var oynatici=null;
-function tarayiciSesi(t){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.15;u.onstart=function(){cember.classList.add("aktif")};u.onend=function(){cember.classList.remove("aktif")};speechSynthesis.cancel();speechSynthesis.speak(u)}
-var sesSirasi=0;
-function sesAl(t){return fetch("/ses",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok)throw new Error("ses");return r.blob()})}
-function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));oynatici.onplay=function(){cember.classList.add("aktif")};oynatici.onended=function(){cember.classList.remove("aktif");ok()};oynatici.onerror=ok;oynatici.play().catch(ok)})}
-async function konus(t){
-  var benim=++sesSirasi;if(oynatici)oynatici.pause();
-  var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
-  var parcalar=[];for(var i=0;i<cumleler.length;i++){var son=parcalar[parcalar.length-1];if(son&&son.length<60)parcalar[parcalar.length-1]=son+" "+cumleler[i];else parcalar.push(cumleler[i])}
-  var istekler=parcalar.map(sesAl);
-  try{for(var j=0;j<istekler.length;j++){var b=await istekler[j];if(benim!==sesSirasi)return;await cal(b)}}
-  catch(e){if(benim===sesSirasi)tarayiciSesi(t)}
-}
-async function gonder(metin,sesli){
-  if(!metin.trim())return;
-  ekle("sen","Sen: "+metin);
-  try{
-    var res=await fetch("/sohbet",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({metin:metin})});
-    if(res.status===401){try{localStorage.removeItem("jarvis_sifre")}catch(e){}ekle("jarvis","Sifre yanlis, sayfayi yenile.");return}
-    var v=await res.json();
-    ekle("jarvis","Jarvis ("+v.beyin+"): "+v.cevap);if(v.link){var a=document.createElement("a");a.href=v.link;a.target="_blank";a.textContent="Aç";a.style.color="#38bdf8";log.appendChild(a)}
-    if(sesli)konus(v.cevap);
-  }catch(err){ekle("jarvis","Sunucuya ulasamadim.")}
-}
-document.getElementById("gonder").onclick=function(){gonder(yazi.value,false);yazi.value=""};
-yazi.onkeydown=function(e){if(e.key==="Enter"){gonder(yazi.value,false);yazi.value=""}};
-var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-var kayit=null,parcalar=[],akis=null,zaman=null;
-function eskiDinle(){
-  if(!SR){ekle("jarvis","Bu tarayici ses tanimayi desteklemiyor. Chrome kullan.");return}
-  var r=new SR();r.lang="tr-TR";
-  r.onstart=function(){btn.classList.add("dinliyor");cember.classList.add("aktif")};
-  r.onend=function(){btn.classList.remove("dinliyor");cember.classList.remove("aktif")};
-  r.onerror=function(){ekle("jarvis","Seni duyamadim, tekrar dene.")};
-  r.onresult=function(e){gonder(e.results[0][0].transcript,true)};
-  r.start();
-}
-function wavaCevir(ab){
-  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
-  return ctx.decodeAudioData(ab).then(function(buf){
-    var hz=16000,oran=buf.sampleRate/hz,n=Math.floor(buf.length/oran),ham=buf.getChannelData(0);
-    var dv=new DataView(new ArrayBuffer(44+n*2));
-    function y(o,t){for(var i=0;i<t.length;i++)dv.setUint8(o+i,t.charCodeAt(i))}
-    y(0,"RIFF");dv.setUint32(4,36+n*2,true);y(8,"WAVE");y(12,"fmt ");dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);
-    dv.setUint32(24,hz,true);dv.setUint32(28,hz*2,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);y(36,"data");dv.setUint32(40,n*2,true);
-    for(var i=0;i<n;i++){var v=Math.max(-1,Math.min(1,ham[Math.floor(i*oran)]));dv.setInt16(44+i*2,v<0?v*0x8000:v*0x7fff,true)}
-    ctx.close();
-    var by=new Uint8Array(dv.buffer),s="";for(var j=0;j<by.length;j+=0x8000)s+=String.fromCharCode.apply(null,by.subarray(j,j+0x8000));
-    return btoa(s);
-  });
-}
-function durdur(){if(kayit&&kayit.state==="recording")kayit.stop()}
-btn.onclick=async function(){
-  if(kayit&&kayit.state==="recording"){durdur();return}
-  if(oynatici)oynatici.pause();speechSynthesis.cancel();
-  if(!navigator.mediaDevices||!window.MediaRecorder){eskiDinle();return}
-  try{akis=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){ekle("jarvis","Mikrofon izni yok.");return}
-  parcalar=[];kayit=new MediaRecorder(akis);
-  kayit.ondataavailable=function(e){if(e.data.size)parcalar.push(e.data)};
-  kayit.onstop=async function(){
-    clearTimeout(zaman);akis.getTracks().forEach(function(t){t.stop()});
-    btn.classList.remove("dinliyor");btn.textContent="Mik";
-    var d=document.createElement("div");d.className="jarvis";d.textContent="Dinledim, anlıyorum...";log.appendChild(d);
-    try{
-      var b64=await wavaCevir(await new Blob(parcalar).arrayBuffer());
-      var r=await fetch("/konus",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
-      if(!r.ok)throw new Error("konus");
-      var v=await r.json();d.remove();
-      if(v.komut){gonder(v.duydum,true);return}
-      if(v.duydum)ekle("sen","Sen: "+v.duydum);
-      ekle("jarvis","Jarvis: "+v.cevap);konus(v.cevap);
-    }catch(e){d.remove();ekle("jarvis","Ses çözülemedi, telefonun ses tanımasıyla deniyorum.");eskiDinle()}
-  };
-  kayit.start();btn.classList.add("dinliyor");btn.textContent="Bitir";
-  zaman=setTimeout(durdur,30000);
-};
+// Arayuz: src/sayfa.html
 
-// ---------- Butonsuz konusma (mod=serbest) ve sabah alarmi (mod=alarm) ----------
-var MOD=new URLSearchParams(location.search).get("mod")||"";
-function androidBitti(){try{if(window.Android&&Android.bitti)Android.bitti()}catch(e){}}
-function bekle(ms){return new Promise(function(r){setTimeout(r,ms)})}
-// Sesi kaydeder: konusma baslayana kadar bekler, susunca durur. Konusma yoksa null.
-async function dinleVAD(azamiBekleme){
-  var akis2=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
-  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
-  var kaynak=ctx.createMediaStreamSource(akis2);var an=ctx.createAnalyser();an.fftSize=1024;kaynak.connect(an);
-  var veri=new Uint8Array(an.fftSize);var rec=new MediaRecorder(akis2);var par=[];
-  rec.ondataavailable=function(e){if(e.data.size)par.push(e.data)};
-  rec.start();btn.classList.add("dinliyor");cember.classList.add("aktif");
-  var basla=Date.now(),konustu=false,sonSes=0,taban=0,olcum=0;
-  while(true){
-    await bekle(60);an.getByteTimeDomainData(veri);
-    var t=0;for(var i=0;i<veri.length;i++){var v=(veri[i]-128)/128;t+=v*v}var rms=Math.sqrt(t/veri.length);
-    if(olcum<8){taban+=rms/8;olcum++;continue}
-    var esik=Math.max(0.025,taban*2.5);
-    if(rms>esik){konustu=true;sonSes=Date.now()}
-    if(konustu&&Date.now()-sonSes>1200)break;
-    if(!konustu&&Date.now()-basla>azamiBekleme)break;
-    if(Date.now()-basla>30000)break;
-  }
-  var bitti=new Promise(function(r){rec.onstop=r});rec.stop();await bitti;
-  akis2.getTracks().forEach(function(x){x.stop()});ctx.close();
-  btn.classList.remove("dinliyor");cember.classList.remove("aktif");
-  if(!konustu)return null;
-  return await wavaCevir(await new Blob(par).arrayBuffer());
-}
-function sesBitene(){return new Promise(function(r){var k=setInterval(function(){var calan=oynatici&&!oynatici.paused&&!oynatici.ended;if(!calan&&!speechSynthesis.speaking){clearInterval(k);r()}},200)})}
-async function serbestMod(){
-  btn.style.display="none";
-  await konus("Efendim?");await bekle(300);await sesBitene();
-  var sessizTur=0;
-  while(true){
-    var b64=await dinleVAD(8000);
-    if(!b64){sessizTur++;if(sessizTur>=4){await konus("Ben buradayım, gerekirse Jarvis de.");await sesBitene();androidBitti();return}continue}
-    sessizTur=0;
-    var d=document.createElement("div");d.className="jarvis";d.textContent="...";log.appendChild(d);
-    try{
-      var r=await fetch("/konus",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
-      var v=await r.json();d.remove();
-      if(v.duydum)ekle("sen","Sen: "+v.duydum);
-      if(v.komut){await gonder(v.duydum,true)}
-      else{ekle("jarvis","Jarvis: "+v.cevap);await konus(v.cevap)}
-      await bekle(400);await sesBitene();
-      if(v.bitis){androidBitti();return}
-    }catch(e){d.remove();ekle("jarvis","Bağlantı sorunu, tekrar dinliyorum.")}
-  }
-}
-async function alarmMod(){
-  btn.style.display="none";
-  try{var a=await (await fetch("/alarm",{headers:{"x-secret":sifre}})).json();if(a.atla){androidBitti();return}}catch(e){}
-  var mesaj=a&&a.mesaj?a.mesaj:"Songül Hanım, Eren'i uyandır.";
-  var ses=null;try{ses=await sesAl(mesaj)}catch(e){}
-  var bas=Date.now();
-  while(Date.now()-bas<30*60*1000){
-    ekle("jarvis",mesaj);
-    if(ses){await cal(ses)}else{tarayiciSesi(mesaj);await bekle(500);await sesBitene()}
-    var b64=await dinleVAD(7000);
-    if(b64){
-      try{
-        var r=await fetch("/dinle",{method:"POST",headers:{"Content-Type":"application/json","x-secret":sifre},body:JSON.stringify({ses:b64})});
-        var v=await r.json();
-        if(v.metin)ekle("sen","Sen: "+v.metin);
-        if(/uyand/i.test(v.metin||"")){await konus("Günaydın Eren! Güzel bir gün olsun.");await bekle(400);await sesBitene();androidBitti();return}
-      }catch(e){}
-    }
-  }
-  androidBitti();
-}
-if(MOD==="serbest")setTimeout(serbestMod,300);
-if(MOD==="alarm")setTimeout(alarmMod,300);
-</script></body></html>`;
 
 
 // ---------------- GitHub (kendi kodunu yazma + kurgu) ----------------
@@ -306,10 +133,15 @@ async function dosyaYaz(env, yol, icerik, sha, mesaj) {
   });
 }
 
+function kodDosyasi(istek) {
+  return /ekran|sayfa|tasar|arayüz|arayuz|renk|buton|düğme|panel|görünüm|animasyon/i.test(istek) ? "src/sayfa.html" : KOD_YOLU;
+}
+
 async function kodIstegi(env, istek) {
-  const { icerik, sha } = await dosyaOku(env, KOD_YOLU);
+  const yol = kodDosyasi(istek);
+  const { icerik, sha } = await dosyaOku(env, yol);
   const sistem =
-    "Sen bir Cloudflare Worker gelistiricisisin. Sana Jarvis'in tum kaynak kodu ve bir degisiklik istegi verilecek. " +
+    "Sen bir Cloudflare Worker ve web arayuzu gelistiricisisin. Sana Jarvis'in bir kaynak dosyasi (" + yol + ") ve bir degisiklik istegi verilecek. " +
     "Istenen degisikligi yap ve var olan hicbir ozelligi bozma. Cevabin TAM OLARAK su bicimde olsun:\n" +
     "OZET: <Turkce, 1-3 cumle, ne degistirdin>\n" + CIT + "js\n<dosyanin TAMAMI, degistirilmis hali>\n" + CIT;
   const M = MODELLER(env);
@@ -324,29 +156,33 @@ async function kodIstegi(env, istek) {
   const son = cevap.lastIndexOf(CIT);
   const kod = bas >= 0 && son > bas ? cevap.slice(cevap.indexOf("\n", bas) + 1, son).trim() + "\n" : null;
   const ozet = ((cevap.match(/OZET:\s*(.+)/) || [])[1] || "Değişiklik hazır.").trim();
-  if (!kod || !kod.includes("export default") || kod.length < icerik.length * 0.6) {
+  const isaret = yol.endsWith(".html") ? "</html>" : "export default";
+  if (!kod || !kod.includes(isaret) || kod.length < icerik.length * 0.6) {
     throw new Error("Model eksik ya da bozuk kod döndürdü, isteği daha açık yazıp tekrar dene.");
   }
-  await kvYaz(env, "bekleyen_kod", { kod, sha, ozet, istek });
+  await kvYaz(env, "bekleyen_kod", { kod, sha, ozet, istek, yol });
   return ozet + " Onaylıyor musun? 'Onayla' dersen kaydedip yayınlarım, 'iptal' dersen vazgeçerim.";
 }
 
 async function kodOnayla(env) {
   const b = await kvOku(env, "bekleyen_kod", null);
   if (!b) return "Bekleyen bir kod değişikliği yok.";
-  const { icerik, sha } = await dosyaOku(env, KOD_YOLU);
+  const yol = b.yol || KOD_YOLU;
+  const { icerik, sha } = await dosyaOku(env, yol);
   if (sha !== b.sha) return "Kod bu arada değişmiş. İsteği tekrar söyle, güncel kod üzerinden yazayım.";
-  await kvYaz(env, "onceki_kod", { kod: icerik });
-  await dosyaYaz(env, KOD_YOLU, b.kod, sha, "Jarvis: " + b.istek.slice(0, 60));
+  await kvYaz(env, "onceki_kod", { kod: icerik, yol });
+  await dosyaYaz(env, yol, b.kod, sha, "Jarvis: " + b.istek.slice(0, 60));
   await kvYaz(env, "bekleyen_kod", null);
+  await gunlukEkle(env, "Kendi kodumu güncelledim: " + b.istek.slice(0, 60));
   return "Kaydettim. Bir iki dakika içinde yeni sürüm yayında olur. Kod hata verirse eski sürüm çalışmaya devam eder; sorun olursa 'geri al' de.";
 }
 
 async function geriAl(env) {
   const o = await kvOku(env, "onceki_kod", null);
   if (!o) return "Geri alınacak bir değişiklik bulamadım.";
-  const { sha } = await dosyaOku(env, KOD_YOLU);
-  await dosyaYaz(env, KOD_YOLU, o.kod, sha, "Jarvis: son degisiklik geri alindi");
+  const yol = o.yol || KOD_YOLU;
+  const { sha } = await dosyaOku(env, yol);
+  await dosyaYaz(env, yol, o.kod, sha, "Jarvis: son degisiklik geri alindi");
   await kvYaz(env, "onceki_kod", null);
   return "Son değişikliği geri aldım. Bir iki dakika içinde eski sürüm yayında olur.";
 }
@@ -370,6 +206,7 @@ async function kurgula(env, metin) {
     method: "POST",
     body: JSON.stringify({ ref: "main", inputs: { format, video_url: video, malzeme_url: malzeme, talimat, stil, plan: "" } }),
   });
+  await gunlukEkle(env, `Kurgu başlatıldı (${format}${stil ? ", " + stil : ""})`);
   return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
 
@@ -382,6 +219,7 @@ async function stilCikar(env, metin) {
     method: "POST",
     body: JSON.stringify({ ref: "main", inputs: { format, ad, linkler: linkler.join(" ") } }),
   });
+  await gunlukEkle(env, `Stil çıkarma başlatıldı (${ad || format})`);
   return `${linkler.length} örnek videodan ${format} stilini çıkarıyorum. 5-10 dakika sürer. Bitince bundan sonraki kurgular bu stille yapılır.`;
 }
 
@@ -416,6 +254,7 @@ async function ilanAra(env) {
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/ilan-avi.yml/dispatches`, {
     method: "POST", body: JSON.stringify({ ref: "main" }),
   });
+  await gunlukEkle(env, "İlan araması başlatıldı");
   return "İlan aramayı başlattım. 3-5 dakika sonra 'ilanlar' de.";
 }
 
@@ -426,6 +265,44 @@ async function kurguDurumu(env) {
   const durum =
     r.status !== "completed" ? "hâlâ çalışıyor" : r.conclusion === "success" ? "bitti, video hazır" : "hata verdi";
   return { cevap: `Son kurgu ${durum}.`, link: r.html_url };
+}
+
+// ---------------- Gunluk (yaptiklari) ve yapacaklari ----------------
+async function gunlukEkle(env, metin) {
+  const g = await kvOku(env, "gunluk", []);
+  g.push({ zaman: Date.now(), metin });
+  await kvYaz(env, "gunluk", g.slice(-60));
+}
+
+async function hatirlatmaEkle(env, metin) {
+  const sistem = "Turkce bir hatirlatma istegini cozumle. Simdi Turkiye saatiyle: " +
+    new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") +
+    ". SADECE JSON don: {\"zaman\": \"YYYY-MM-DDTHH:MM\" (Turkiye saati, saat belirtilmemisse 09:00), \"metin\": \"kisa hatirlatma metni\"}";
+  let j;
+  try {
+    const ham = await sorGemini(env, sistem, [{ role: "user", content: metin }], MODELLER(env).sohbet, { json: true });
+    j = JSON.parse(ham);
+  } catch (e) {
+    throw new Error("Hatırlatmanın zamanını anlayamadım, saati açıkça söyle.");
+  }
+  const zaman = Date.parse(j.zaman + ":00+03:00");
+  if (!zaman) throw new Error("Hatırlatmanın zamanını anlayamadım.");
+  const liste = await kvOku(env, "yapacaklar", []);
+  liste.push({ id: crypto.randomUUID().slice(0, 8), zaman, metin: j.metin || metin });
+  await kvYaz(env, "yapacaklar", liste);
+  await gunlukEkle(env, "Hatırlatma kuruldu: " + (j.metin || metin));
+  const t = new Date(zaman + 3 * 3600 * 1000).toISOString();
+  return `Tamam, ${t.slice(8, 10)}.${t.slice(5, 7)} saat ${t.slice(11, 16)}'de hatırlatacağım: ${j.metin || metin}`;
+}
+
+async function notAl(env, metin) {
+  const icerik = metin.replace(/^\s*(jarvis,?\s*)?not al[:,]?\s*/i, "").trim();
+  if (!icerik) return "Neyi not alayım?";
+  const liste = await kvOku(env, "yapacaklar", []);
+  liste.push({ id: crypto.randomUUID().slice(0, 8), zaman: null, metin: icerik });
+  await kvYaz(env, "yapacaklar", liste);
+  await gunlukEkle(env, "Not alındı: " + icerik);
+  return "Not aldım: " + icerik;
 }
 
 const BITIS = /kapat[ıi]yorum|görüşürüz|gorusuruz|tamam kapat/i;
@@ -461,6 +338,9 @@ function komut(metin) {
   if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
   if (m === "ilan ara") return "ilan_ara";
   if (m.includes("alarm")) return "alarm";
+  if (m.includes("hatırlat") || m.includes("hatirlat")) return "hatirlat";
+  if (/^(jarvis,?\s*)?not al/.test(m)) return "not";
+  if (m.includes("yapılacakları temizle") || m.includes("listeyi temizle")) return "temizle";
   if (m.includes("kurgu durumu")) return "kurgu_durumu";
   return null;
 }
@@ -661,6 +541,31 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
+    if (request.method === "GET" && url.pathname === "/durum") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      const yapacaklar = (await kvOku(env, "yapacaklar", []))
+        .filter((y) => !y.bitti)
+        .sort((a, b) => (a.zaman || 9e15) - (b.zaman || 9e15));
+      return Response.json({
+        yapacaklar,
+        gunluk: (await kvOku(env, "gunluk", [])).slice(-20),
+        notSayisi: (await kvOku(env, "notlar", [])).length,
+        drive: env.DRIVE_URL || "",
+      });
+    }
+    if (request.method === "POST" && url.pathname === "/hatirlatildi") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
+        return new Response("Yetkisiz", { status: 401 });
+      }
+      const { id } = await request.json();
+      const liste = await kvOku(env, "yapacaklar", []);
+      const y = liste.find((x) => x.id === id);
+      if (y) { y.bitti = true; await gunlukEkle(env, "Hatırlatıldı: " + y.metin); }
+      await kvYaz(env, "yapacaklar", liste.filter((x) => !x.bitti || Date.now() - (x.zaman || 0) < 86400000));
+      return Response.json({ ok: true });
+    }
     if (request.method === "GET" && url.pathname === "/alarm") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
         return new Response("Yetkisiz", { status: 401 });
@@ -711,7 +616,7 @@ export default {
 
       const k = komut(metin);
       if (k) {
-        if (!env.GITHUB_TOKEN && k !== "alarm") return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
+        if (!env.GITHUB_TOKEN && !["alarm", "hatirlat", "not", "temizle"].includes(k)) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
         try {
           let c;
           if (k === "onayla") c = await kodOnayla(env);
@@ -722,6 +627,9 @@ export default {
           else if (k === "stil") c = await stilCikar(env, metin);
           else if (k === "ilanlar") c = await ilanlar(env);
           else if (k === "alarm") c = await alarmAyari(env, metin);
+          else if (k === "hatirlat") c = await hatirlatmaEkle(env, metin);
+          else if (k === "not") c = await notAl(env, metin);
+          else if (k === "temizle") { await kvYaz(env, "yapacaklar", []); await gunlukEkle(env, "Yapılacaklar temizlendi"); c = "Yapılacaklar listesini temizledim."; }
           else if (k === "ilan_ara") c = await ilanAra(env);
           else if (k === "basvuru") {
             const b = await basvuruYaz(env, metin);

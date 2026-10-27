@@ -82,3 +82,48 @@ fun alarmKur(c: Context) {
     if (izinli) am.setAlarmClock(AlarmManager.AlarmClockInfo(cal.timeInMillis, goster), pi)
     else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
 }
+
+/** Sayfadan gelen hatirlatmalari telefona alarm olarak kurar. */
+fun hatirlaticilariKur(c: Context, json: String) {
+    val am = c.getSystemService(AlarmManager::class.java)
+    val p = c.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+    val eskiler = p.getStringSet("hatirlatici_idler", emptySet()) ?: emptySet()
+    for (id in eskiler) {
+        am.cancel(PendingIntent.getBroadcast(c, id.hashCode(), Intent(c, AlarmReceiver::class.java).setAction("hatirlat"),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+    }
+    val yeni = mutableSetOf<String>()
+    try {
+        val dizi = org.json.JSONArray(json)
+        for (i in 0 until dizi.length()) {
+            val o = dizi.getJSONObject(i)
+            val id = o.getString("id")
+            val zaman = o.getLong("zaman")
+            if (zaman <= System.currentTimeMillis()) continue
+            val intent = Intent(c, AlarmReceiver::class.java).setAction("hatirlat")
+                .putExtra("metin", o.optString("metin")).putExtra("id", id)
+            val pi = PendingIntent.getBroadcast(c, id.hashCode(), intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val izinli = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+            if (izinli) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, zaman, pi)
+            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, zaman, pi)
+            yeni.add(id)
+        }
+    } catch (_: Exception) {}
+    p.edit().putStringSet("hatirlatici_idler", yeni).apply()
+}
+
+fun hatirlatmaBildirimi(c: Context, metin: String) {
+    kanallariKur(c)
+    val pi = PendingIntent.getActivity(c, 9, Intent(c, JarvisActivity::class.java).putExtra("mod", "hatirlat")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val n = android.app.Notification.Builder(c, KANAL_ACIL)
+        .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+        .setContentTitle("Jarvis hatırlatıyor")
+        .setContentText(metin)
+        .setStyle(android.app.Notification.BigTextStyle().bigText(metin))
+        .setContentIntent(pi)
+        .setAutoCancel(true)
+        .build()
+    c.getSystemService(NotificationManager::class.java).notify(metin.hashCode(), n)
+}

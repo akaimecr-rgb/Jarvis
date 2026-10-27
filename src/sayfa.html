@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>J.A.R.V.I.S.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#02070d;--panel:rgba(6,24,36,.55);--cyan:#22d3ee;--cyan2:#67e8f9;--dim:#0e7490;--line:rgba(34,211,238,.35);--text:#cffafe;--muted:#5eb6c9;--warn:#fbbf24}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Rajdhani,system-ui,sans-serif;letter-spacing:.06em;overflow:hidden}
+#yildiz{position:fixed;inset:0;z-index:0}
+#app{position:relative;z-index:1;height:100%;max-width:560px;margin:0 auto;padding:14px 14px 10px;display:flex;flex-direction:column;gap:10px}
+.or{font-family:Orbitron,sans-serif}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 0 18px rgba(34,211,238,.08) inset;position:relative}
+.panel h3{margin:0;padding:8px 12px 4px;font-family:Orbitron;font-size:11px;letter-spacing:.18em;color:var(--cyan)}
+header{display:flex;justify-content:space-between;align-items:flex-start}
+.logo{font-family:Orbitron;font-weight:900;font-size:22px;color:var(--cyan2);text-shadow:0 0 12px var(--cyan)}
+.logo small{display:block;font-family:Rajdhani;font-size:10px;letter-spacing:.42em;color:var(--muted);margin-top:2px}
+.saat{text-align:right;font-family:Orbitron}
+.saat b{font-size:24px;color:#fff;text-shadow:0 0 10px var(--cyan)}
+.saat span{display:block;font-size:12px;color:var(--cyan)}
+.ust{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0;max-height:210px}
+.sol{display:flex;flex-direction:column;gap:10px;min-height:0}
+.btn{background:rgba(8,40,56,.6);border:1px solid var(--line);color:var(--cyan2);font-family:Orbitron;font-size:11px;letter-spacing:.16em;border-radius:8px;padding:10px 12px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.btn:active{background:rgba(34,211,238,.2)}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6}
+ul.liste{list-style:none;margin:0;padding:2px 12px 10px;font-size:12.5px;max-height:112px;overflow-y:auto}
+ul.liste li{padding:3px 0;display:flex;gap:6px;color:var(--text)}
+ul.liste li b{color:var(--cyan);font-weight:600;min-width:42px}
+.bos{color:var(--muted);font-size:12px;padding:4px 12px 10px}
+.hava table{width:100%;border-collapse:collapse;font-size:13px;padding:0 10px}
+.hava td{padding:3px 8px;white-space:nowrap;font-size:12.5px}
+.hava td:nth-child(2){text-align:center;font-size:16px}
+.hava td:last-child{text-align:right;color:var(--cyan2)}
+/* HUD */
+#hud{position:relative;flex:1;min-height:200px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#hud svg{width:min(70vw,33vh,300px);height:min(70vw,33vh,300px);overflow:visible}
+.halka{transform-origin:150px 150px;transform-box:view-box;animation:don 24s linear infinite}
+.h2{animation-duration:14s;animation-direction:reverse}
+.h3{animation-duration:9s}
+.h4{animation-duration:36s;animation-direction:reverse}
+.supur{transform-origin:150px 150px;transform-box:view-box;animation:don 5s linear infinite}
+@keyframes don{to{transform:rotate(360deg)}}
+body.aktif .halka{animation-duration:6s}body.aktif .h2{animation-duration:4s}body.aktif .h3{animation-duration:2.5s}body.aktif .supur{animation-duration:1.6s}
+#cekirdek{transition:r .15s}
+.parla{filter:drop-shadow(0 0 6px var(--cyan))}
+.merkez{position:absolute;text-align:center;pointer-events:none}
+.merkez .d{font-family:Orbitron;font-size:13px;color:var(--cyan);letter-spacing:.2em}
+.merkez .ad{font-family:Orbitron;font-weight:900;font-size:clamp(22px,min(7vw,4vh),36px);color:#e0fbff;text-shadow:0 0 14px var(--cyan),0 0 30px var(--cyan)}
+.merkez .alt{font-size:11px;color:var(--muted);letter-spacing:.3em}
+.kose{position:absolute;width:26px;height:26px;border-color:var(--cyan);border-style:solid;opacity:.7}
+.k1{top:4px;left:12%;border-width:2px 0 0 2px}.k2{top:4px;right:12%;border-width:2px 2px 0 0}
+.k3{bottom:4px;left:12%;border-width:0 0 2px 2px}.k4{bottom:4px;right:12%;border-width:0 2px 2px 0}
+.ikili{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.durum .satir{padding:2px 12px 6px;font-size:12px}
+.durum .satir div{display:flex;justify-content:space-between}
+.bar{height:4px;background:rgba(34,211,238,.12);border-radius:2px;margin-top:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--dim),var(--cyan));box-shadow:0 0 8px var(--cyan);transition:width .6s}
+.alt-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}
+#gunluk{list-style:none;margin:0;padding:0 12px 10px;font-size:12.5px;height:96px;overflow-y:auto;font-family:Rajdhani}
+#gunluk li{padding:1px 0;display:flex;gap:8px}
+#gunluk li b{color:var(--cyan);font-weight:600;min-width:40px}
+#gunluk li.sen{color:#a5f3fc}#gunluk li.jarvis{color:#fff}
+#app.genis .ust,#app.genis #hud,#app.genis .ikili{display:none}
+#app.genis #gunluk{height:calc(100vh - 260px)}
+#dalga{width:100%;height:100%;display:block}
+.giris{display:flex;gap:8px}
+.giris input{flex:1;background:rgba(6,24,36,.7);border:1px solid var(--line);border-radius:10px;color:#fff;padding:13px 14px;font-family:Rajdhani;font-size:16px;letter-spacing:.08em;outline:none}
+.giris input::placeholder{color:var(--muted)}
+.giris .btn{width:52px;padding:0}
+#mik.dinliyor{background:rgba(239,68,68,.25);border-color:#f87171;color:#fecaca}
+a{color:var(--cyan2)}
+@media (max-height:740px){ul.liste{max-height:84px}#gunluk{height:70px}.hava td{padding:2px 10px}}
+</style>
+</head>
+<body>
+<canvas id="yildiz"></canvas>
+<div id="app">
+  <header>
+    <div class="logo">J.A.R.V.I.S.<small>YAPAY ZEKA ASİSTANI</small></div>
+    <div class="saat"><b id="saat">--:--</b><span id="tarih"></span></div>
+  </header>
+
+  <div class="ust">
+    <div class="sol">
+      <div class="btn" id="ayarBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>AYARLAR</div>
+      <div class="panel" style="flex:1;min-height:0">
+        <h3>JARVIS YAPACAKLARI</h3>
+        <ul class="liste" id="yapacak"></ul>
+      </div>
+    </div>
+    <div class="panel hava">
+      <h3>HAVA DURUMU • <span id="yer">YEREL</span></h3>
+      <table id="havaTablo"><tr><td colspan="3" class="bos">Yükleniyor...</td></tr></table>
+    </div>
+  </div>
+
+  <div id="hud" title="Konuşmak için dokun">
+    <div class="kose k1"></div><div class="kose k2"></div><div class="kose k3"></div><div class="kose k4"></div>
+    <svg viewBox="0 0 300 300" class="parla">
+      <defs>
+        <linearGradient id="sg" x1="0" x2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity="0"/><stop offset="1" stop-color="#e0fbff"/></linearGradient>
+      </defs>
+      <g class="halka h4"><circle cx="150" cy="150" r="146" fill="none" stroke="#22d3ee" stroke-width="1" stroke-dasharray="1 6" opacity=".7"/></g>
+      <g class="halka"><circle cx="150" cy="150" r="132" fill="none" stroke="#22d3ee" stroke-width="3" stroke-dasharray="18 10" opacity=".85"/></g>
+      <g class="supur"><path d="M150 18 A132 132 0 0 1 270 96" fill="none" stroke="url(#sg)" stroke-width="5" stroke-linecap="round"/></g>
+      <g class="halka h2"><circle cx="150" cy="150" r="114" fill="none" stroke="#67e8f9" stroke-width="1.2" stroke-dasharray="60 14 6 14" opacity=".6"/></g>
+      <g class="halka h3"><circle cx="150" cy="150" r="98" fill="none" stroke="#22d3ee" stroke-width="1" stroke-dasharray="2 4" opacity=".5"/></g>
+      <circle cx="150" cy="150" r="76" fill="rgba(34,211,238,.05)" stroke="#22d3ee" stroke-width="1.2" opacity=".8"/>
+      <circle id="cekirdek" cx="150" cy="150" r="70" fill="none" stroke="#a5f3fc" stroke-width="2" opacity=".25"/>
+    </svg>
+    <div class="merkez">
+      <div class="d" id="durumYazi">HAZIR</div>
+      <div class="ad">J.A.R.V.I.S.</div>
+      <div class="alt" id="cekirdekYazi">ÇEKİRDEK ÇIKTI %0</div>
+    </div>
+  </div>
+
+  <div class="ikili">
+    <div class="btn" id="dosyaBtn"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>DOSYA AÇ</div>
+    <div class="btn" id="gunlukBtn"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg>SİSTEM GÜNLÜĞÜ</div>
+  </div>
+
+  <div class="panel durum">
+    <h3>SİSTEM DURUMU</h3>
+    <div class="satir"><div><span>BAĞLANTI</span><span id="d1">--</span></div><div class="bar"><i id="b1" style="width:0"></i></div></div>
+    <div class="satir"><div><span>HAFIZA</span><span id="d2">--</span></div><div class="bar"><i id="b2" style="width:0"></i></div></div>
+    <div class="satir"><div><span>GÖREV YÜKÜ</span><span id="d3">--</span></div><div class="bar"><i id="b3" style="width:0"></i></div></div>
+  </div>
+
+  <div class="alt-grid">
+    <div class="panel"><h3>&gt; SİSTEM GÜNLÜĞÜ</h3><ul id="gunluk"></ul></div>
+    <div class="panel" style="padding:6px"><canvas id="dalga"></canvas></div>
+  </div>
+
+  <div class="giris">
+    <div class="btn" id="mik" title="Konuşmayı başlat"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+    <input id="yazi" placeholder="&gt;  KOMUTUNU YAZ..." autocomplete="off">
+    <div class="btn" id="gonder"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7z"/></svg></div>
+  </div>
+</div>
+
+<script>
+// ---------------- Temel ----------------
+var $=function(i){return document.getElementById(i)};
+var MOD=new URLSearchParams(location.search).get("mod")||"";
+var sifre=null;try{if(window.Android&&Android.sifre)sifre=Android.sifre()||null}catch(e){}
+if(!sifre){try{sifre=localStorage.getItem("jarvis_sifre")}catch(e){}}
+if(!sifre){sifre=prompt("Jarvis şifresi:")||"";try{localStorage.setItem("jarvis_sifre",sifre)}catch(e){}}
+var H=function(){return {"Content-Type":"application/json","x-secret":sifre}};
+function bekle(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function androidBitti(){try{if(window.Android&&Android.bitti)Android.bitti()}catch(e){}}
+function ss(d){return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function gunlukYaz(sinif,metin,zaman){var li=document.createElement("li");li.className=sinif||"";var b=document.createElement("b");b.textContent=ss(zaman?new Date(zaman):new Date());var s=document.createElement("span");s.textContent=metin;li.appendChild(b);li.appendChild(s);$("gunluk").appendChild(li);$("gunluk").scrollTop=1e9;return li}
+function ekle(sinif,metin){return gunlukYaz(sinif,metin)}
+var DURUMLAR={hazir:"HAZIR",dinliyor:"DİNLİYOR",dusunuyor:"DÜŞÜNÜYOR",konusuyor:"KONUŞUYOR"};
+var seviye=0;
+function durum(d){$("durumYazi").textContent=DURUMLAR[d]||d;document.body.classList.toggle("aktif",d!=="hazir")}
+
+// Saat
+function saatGuncelle(){var d=new Date();$("saat").textContent=ss(d);$("tarih").textContent="TR • "+d.toLocaleDateString("tr-TR")}
+saatGuncelle();setInterval(saatGuncelle,10000);
+
+// Yildizli arka plan
+(function(){var c=$("yildiz"),x=c.getContext("2d"),Y=[];function boyut(){c.width=innerWidth;c.height=innerHeight;Y=[];for(var i=0;i<70;i++)Y.push({x:Math.random()*c.width,y:Math.random()*c.height,r:Math.random()*1.6+.3,h:Math.random()*.3+.05,a:Math.random()})}boyut();addEventListener("resize",boyut);
+function ciz(){x.clearRect(0,0,c.width,c.height);Y.forEach(function(s){s.y-=s.h;if(s.y<0)s.y=c.height;s.a+=.02;x.globalAlpha=.35+.35*Math.sin(s.a);x.fillStyle="#67e8f9";x.beginPath();x.arc(s.x,s.y,s.r,0,6.3);x.fill()});requestAnimationFrame(ciz)}ciz()})();
+
+// Dalga ve cekirdek
+(function(){var c=$("dalga"),x=c.getContext("2d"),t=0;function ciz(){var w=c.width=c.clientWidth*2,h=c.height=c.clientHeight*2;x.clearRect(0,0,w,h);
+x.strokeStyle="rgba(34,211,238,.15)";x.lineWidth=1;for(var g=0;g<w;g+=w/8){x.beginPath();x.moveTo(g,0);x.lineTo(g,h);x.stroke()}
+var aktif=document.body.classList.contains("aktif");var g2=aktif?Math.max(.25,seviye*3):.08;
+x.strokeStyle="#22d3ee";x.lineWidth=3;x.shadowColor="#22d3ee";x.shadowBlur=12;x.beginPath();
+for(var i=0;i<=w;i+=4){var p=i/w;var v=Math.sin(p*18+t)*.4+Math.sin(p*41-t*1.7)*.3+(Math.random()-.5)*(aktif?.9:.2);x.lineTo(i,h/2+v*h*.38*g2*Math.sin(p*Math.PI))}
+x.stroke();x.shadowBlur=0;t+=.12;
+var yuzde=Math.round(Math.min(1,aktif?.45+seviye*4:.12+.04*Math.sin(t/4))*100);$("cekirdekYazi").textContent="ÇEKİRDEK ÇIKTI %"+yuzde;
+$("cekirdek").setAttribute("r",(70+(aktif?seviye*60:0)).toFixed(1));requestAnimationFrame(ciz)}ciz()})();
+
+// ---------------- Ses (Jarvis konusur) ----------------
+var oynatici=null,sesSirasi=0;
+function tarayiciSesi(t){return new Promise(function(ok){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.1;u.onend=ok;u.onerror=ok;speechSynthesis.cancel();speechSynthesis.speak(u)})}
+function sesAl(t){return fetch("/ses",{method:"POST",headers:H(),body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok)throw new Error("ses");return r.blob()})}
+function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));var y=setInterval(function(){seviye=.04+Math.random()*.06},90);var bit=function(){clearInterval(y);seviye=0;ok()};oynatici.onended=bit;oynatici.onerror=bit;oynatici.play().catch(bit)})}
+async function konus(t){
+  var benim=++sesSirasi;if(oynatici)oynatici.pause();speechSynthesis.cancel();durum("konusuyor");
+  var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
+  var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<60)par[par.length-1]=s+" "+c;else par.push(c)});
+  var istekler=par.map(sesAl);
+  try{for(var j=0;j<istekler.length;j++){var b=await istekler[j];if(benim!==sesSirasi)return;await cal(b)}}
+  catch(e){if(benim===sesSirasi)await tarayiciSesi(t)}
+  if(benim===sesSirasi)durum("hazir");
+}
+
+// ---------------- Mikrofon ----------------
+function wavaCevir(ab){
+  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
+  return ctx.decodeAudioData(ab).then(function(buf){
+    var hz=16000,oran=buf.sampleRate/hz,n=Math.floor(buf.length/oran),ham=buf.getChannelData(0);
+    var dv=new DataView(new ArrayBuffer(44+n*2));
+    function y(o,t){for(var i=0;i<t.length;i++)dv.setUint8(o+i,t.charCodeAt(i))}
+    y(0,"RIFF");dv.setUint32(4,36+n*2,true);y(8,"WAVE");y(12,"fmt ");dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);
+    dv.setUint32(24,hz,true);dv.setUint32(28,hz*2,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);y(36,"data");dv.setUint32(40,n*2,true);
+    for(var i=0;i<n;i++){var v=Math.max(-1,Math.min(1,ham[Math.floor(i*oran)]));dv.setInt16(44+i*2,v<0?v*0x8000:v*0x7fff,true)}
+    ctx.close();
+    var by=new Uint8Array(dv.buffer),s="";for(var j=0;j<by.length;j+=0x8000)s+=String.fromCharCode.apply(null,by.subarray(j,j+0x8000));
+    return btoa(s);
+  });
+}
+var iptalDinle=false;
+async function dinleVAD(azami){
+  var akis=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+  var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
+  var an=ctx.createAnalyser();an.fftSize=1024;ctx.createMediaStreamSource(akis).connect(an);
+  var veri=new Uint8Array(an.fftSize),rec=new MediaRecorder(akis),par=[];
+  rec.ondataavailable=function(e){if(e.data.size)par.push(e.data)};rec.start();durum("dinliyor");$("mik").classList.add("dinliyor");
+  var bas=Date.now(),konustu=false,son=0,taban=0,olc=0;
+  while(!iptalDinle){
+    await bekle(60);an.getByteTimeDomainData(veri);
+    var t=0;for(var i=0;i<veri.length;i++){var v=(veri[i]-128)/128;t+=v*v}var rms=Math.sqrt(t/veri.length);seviye=rms;
+    if(olc<8){taban+=rms/8;olc++;continue}
+    if(rms>Math.max(.025,taban*2.5)){konustu=true;son=Date.now()}
+    if(konustu&&Date.now()-son>1200)break;
+    if(!konustu&&Date.now()-bas>azami)break;
+    if(Date.now()-bas>30000)break;
+  }
+  var bit=new Promise(function(r){rec.onstop=r});rec.stop();await bit;akis.getTracks().forEach(function(x){x.stop()});ctx.close();
+  seviye=0;$("mik").classList.remove("dinliyor");durum("hazir");
+  if(!konustu||iptalDinle)return null;
+  return await wavaCevir(await new Blob(par).arrayBuffer());
+}
+
+// ---------------- Sohbet ----------------
+async function gonder(metin,sesli){
+  if(!metin.trim())return;
+  gunlukYaz("sen","Sen: "+metin);durum("dusunuyor");
+  try{
+    var r=await fetch("/sohbet",{method:"POST",headers:H(),body:JSON.stringify({metin:metin})});
+    if(r.status===401){try{localStorage.removeItem("jarvis_sifre")}catch(e){}gunlukYaz("jarvis","Şifre yanlış, ayarlardan düzelt.");durum("hazir");return}
+    var v=await r.json();var li=gunlukYaz("jarvis","Jarvis: "+v.cevap);
+    if(v.link){var a=document.createElement("a");a.href=v.link;a.target="_blank";a.textContent=" [AÇ]";li.appendChild(a)}
+    durumYenile();
+    if(sesli)await konus(v.cevap);else durum("hazir");
+  }catch(e){gunlukYaz("jarvis","Sunucuya ulaşamadım.");durum("hazir")}
+}
+var sohbetAcik=false;
+async function serbestMod(karsila){
+  if(sohbetAcik)return;sohbetAcik=true;iptalDinle=false;
+  if(karsila!==false)await konus("Efendim?");
+  var sessiz=0;
+  while(sohbetAcik){
+    var b64=await dinleVAD(8000);
+    if(!sohbetAcik)break;
+    if(!b64){if(++sessiz>=4){await konus("Ben buradayım, gerekirse Jarvis de.");break}continue}
+    sessiz=0;durum("dusunuyor");
+    try{
+      var r=await fetch("/konus",{method:"POST",headers:H(),body:JSON.stringify({ses:b64})});
+      var v=await r.json();
+      if(v.duydum)gunlukYaz("sen","Sen: "+v.duydum);
+      if(v.komut){await gonder(v.duydum,true)}
+      else{gunlukYaz("jarvis","Jarvis: "+v.cevap);await konus(v.cevap)}
+      durumYenile();
+      if(v.bitis)break;
+    }catch(e){gunlukYaz("jarvis","Bağlantı sorunu, tekrar dinliyorum.");durum("hazir")}
+  }
+  sohbetAcik=false;durum("hazir");
+  if(MOD==="serbest")androidBitti();
+}
+function sohbetiKapat(){sohbetAcik=false;iptalDinle=true;sesSirasi++;if(oynatici)oynatici.pause();speechSynthesis.cancel();durum("hazir")}
+$("mik").onclick=function(){if(sohbetAcik)sohbetiKapat();else serbestMod()};
+$("hud").onclick=function(){if(!sohbetAcik)serbestMod()};
+$("gonder").onclick=function(){gonder($("yazi").value,false);$("yazi").value=""};
+$("yazi").onkeydown=function(e){if(e.key==="Enter"){gonder($("yazi").value,false);$("yazi").value=""}};
+
+// ---------------- Paneller ----------------
+var sonDurum=null;
+async function durumYenile(){
+  var t0=Date.now();
+  try{
+    var d=await (await fetch("/durum",{headers:H()})).json();sonDurum=d;var gecikme=Date.now()-t0;
+    var ul=$("yapacak");ul.innerHTML="";
+    if(!d.yapacaklar.length){ul.innerHTML='<li class="bos">Bekleyen iş yok. "Yarın 11de hatırlat ..." ya da "not al ..." de.</li>'}
+    d.yapacaklar.forEach(function(y){var li=document.createElement("li");var b=document.createElement("b");b.textContent=y.zaman?ss(new Date(y.zaman)):"•";var s=document.createElement("span");s.textContent=y.metin+(y.zaman&&new Date(y.zaman).toDateString()!==new Date().toDateString()?" ("+new Date(y.zaman).toLocaleDateString("tr-TR",{day:"numeric",month:"short"})+")":"");li.appendChild(b);li.appendChild(s);ul.appendChild(li)});
+    var g=$("gunluk");if(!g.dataset.dolu){g.dataset.dolu=1;d.gunluk.forEach(function(x){gunlukYaz("",x.metin,x.zaman)})}
+    var bag=Math.max(10,100-Math.round(gecikme/15));$("d1").textContent=bag+"%";$("b1").style.width=bag+"%";
+    var haf=Math.min(100,d.notSayisi);$("d2").textContent=d.notSayisi+" NOT";$("b2").style.width=Math.max(4,haf)+"%";
+    var yuk=Math.min(100,d.yapacaklar.length*12);$("d3").textContent=d.yapacaklar.length+" İŞ";$("b3").style.width=Math.max(4,yuk)+"%";
+    try{if(window.Android&&Android.hatirlaticiKur)Android.hatirlaticiKur(JSON.stringify(d.yapacaklar.filter(function(y){return y.zaman&&y.zaman>Date.now()})))}catch(e){}
+    hatirlatKontrol(d);
+  }catch(e){$("d1").textContent="YOK";$("b1").style.width="4%"}
+}
+var soylenenler={};
+async function hatirlatKontrol(d){
+  var vadesi=d.yapacaklar.filter(function(y){return y.zaman&&y.zaman<=Date.now()&&!soylenenler[y.id]});
+  for(var i=0;i<vadesi.length;i++){var y=vadesi[i];soylenenler[y.id]=1;gunlukYaz("jarvis","Hatırlatma: "+y.metin);
+    try{await fetch("/hatirlatildi",{method:"POST",headers:H(),body:JSON.stringify({id:y.id})})}catch(e){}
+    if(!sohbetAcik)await konus("Hatırlatma: "+y.metin)}
+  if(vadesi.length)setTimeout(durumYenile,1500);
+}
+durumYenile();setInterval(durumYenile,30000);
+
+// Hava durumu (Open-Meteo, ucretsiz)
+var GUN=["PAZ","PZT","SAL","ÇAR","PER","CUM","CMT"];
+function ikon(k){return k===0?"☀️":k<=2?"🌤️":k===3?"☁️":k<=48?"🌫️":k<=67?"🌧️":k<=77?"❄️":k<=82?"🌦️":"⛈️"}
+async function hava(lat,lon,yer){
+  try{
+    var j=await (await fetch("https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+"&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5")).json();
+    var tb=$("havaTablo");tb.innerHTML="";
+    j.daily.time.forEach(function(t,i){var d=new Date(t+"T12:00");var tr=document.createElement("tr");
+      tr.innerHTML="<td>"+(i===0?"BUGÜN":i===1?"YARIN":GUN[d.getDay()])+"</td><td>"+ikon(j.daily.weathercode[i])+"</td><td>"+Math.round(j.daily.temperature_2m_max[i])+"° / "+Math.round(j.daily.temperature_2m_min[i])+"°</td>";tb.appendChild(tr)});
+    if(yer)$("yer").textContent=yer;
+  }catch(e){$("havaTablo").innerHTML='<tr><td class="bos">Hava alınamadı</td></tr>'}
+}
+var kayitliKonum=null;try{kayitliKonum=JSON.parse(localStorage.getItem("jarvis_konum")||"null")}catch(e){}
+if(kayitliKonum)hava(kayitliKonum[0],kayitliKonum[1]);else hava(41.01,28.97,"İSTANBUL");
+if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){var k=[p.coords.latitude.toFixed(2),p.coords.longitude.toFixed(2)];try{localStorage.setItem("jarvis_konum",JSON.stringify(k))}catch(e){}hava(k[0],k[1],"YEREL")},function(){},{timeout:8000,maximumAge:3600000});
+
+// Dugmeler
+$("ayarBtn").onclick=function(){
+  if(window.Android&&Android.ayarlar){Android.ayarlar();return}
+  if(confirm("Jarvis şifresini değiştirmek ister misin?")){try{localStorage.removeItem("jarvis_sifre")}catch(e){}location.reload()}
+};
+$("dosyaBtn").onclick=function(){var u=(sonDurum&&sonDurum.drive)||"https://drive.google.com/drive/my-drive";window.open(u,"_blank")};
+$("gunlukBtn").onclick=function(){$("app").classList.toggle("genis")};
+
+// ---------------- Sabah alarmi ----------------
+async function alarmMod(){
+  var a=null;try{a=await (await fetch("/alarm",{headers:H()})).json();if(a.atla){androidBitti();return}}catch(e){}
+  var mesaj=a&&a.mesaj?a.mesaj:"Songül Hanım, Eren'i uyandır.";
+  var ses=null;try{ses=await sesAl(mesaj)}catch(e){}
+  var bas=Date.now();
+  while(Date.now()-bas<30*60*1000){
+    gunlukYaz("jarvis",mesaj);durum("konusuyor");
+    if(ses)await cal(ses);else await tarayiciSesi(mesaj);
+    var b64=await dinleVAD(7000);
+    if(b64){try{
+      var v=await (await fetch("/dinle",{method:"POST",headers:H(),body:JSON.stringify({ses:b64})})).json();
+      if(v.metin)gunlukYaz("sen","Sen: "+v.metin);
+      if(/uyand/i.test(v.metin||"")){await konus("Günaydın Eren! Güzel bir gün olsun.");androidBitti();return}
+    }catch(e){}}
+  }
+  androidBitti();
+}
+
+if(MOD==="serbest")setTimeout(serbestMod,300);
+if(MOD==="alarm")setTimeout(alarmMod,300);
+if(MOD==="hatirlat")setTimeout(function(){setTimeout(androidBitti,25000)},300);
+</script>
+</body>
+</html>

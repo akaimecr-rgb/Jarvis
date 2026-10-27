@@ -6,6 +6,12 @@ import android.content.Intent
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, intent: Intent) {
+        if (intent.action == "hatirlat") {
+            hatirlatmaBildirimi(c, intent.getStringExtra("metin") ?: "Hatırlatma")
+            servisKomutu(c, WakeService.DURAKLAT)
+            jarvisiAc(c, "hatirlat")
+            return
+        }
         alarmKur(c) // yarinin alarmi
         servisKomutu(c, WakeService.DURAKLAT)
         jarvisiAc(c, "alarm")

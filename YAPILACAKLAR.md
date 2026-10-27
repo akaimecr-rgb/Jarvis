@@ -27,6 +27,12 @@
   4. Paylas-kurgula: telefondaki videoyu Paylas > Jarvis ile gonderip "GKey stiliyle kurgula".
   5. Hatirlaticilar: "yarin 12'de teslim var, 11'de hatirlat".
 
+## Yeni (Eren'in tasarimiyla)
+- Jarvis ekrani: hareketli halkalar, saat, hava durumu, JARVIS YAPACAKLARI paneli, sistem gunlugu (yaptiklari), AYARLAR dugmesi, DOSYA AÇ (Drive).
+- "yarin 11de ... hatirlat" -> hatirlatma; zamani gelince Jarvis soyler ve telefona bildirim gelir.
+- "not al: ..." -> yapacaklar listesine not. "listeyi temizle".
+- DOSYA AÇ'in Drive klasorunu acmasi icin Cloudflare'e DRIVE_URL (Text) eklenebilir.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
