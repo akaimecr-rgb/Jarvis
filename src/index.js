@@ -700,6 +700,99 @@ async function groqDinle(env, b64) {
   return metin;
 }
 
+// ---------------- Ajan: gorevi araclarla adim adim yapar ----------------
+const ARACLAR = [
+  ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
+    { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
+  ["kurgu_durumu", "Son kurgunun durumunu ve video linkini verir.", {}],
+  ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Link verilmezse Drive Jarvis/ornek klasorunu kullanir.",
+    { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)" }],
+  ["ilanlar", "Reddit'te bulunmus uygun video editor ilanlarini listeler.", {}],
+  ["ilan_ara", "Hemen yeni ilan aramasi baslatir.", {}],
+  ["basvuru_yaz", "Listelenen bir ilana Ingilizce basvuru + Turkce ceviri yazar.", { numara: "ilan numarasi" }],
+  ["hatirlat", "Belirli bir zamanda hatirlatma kurar.", { istek: "zaman ve konu, ornek: yarin 11de GKey teslimi" }],
+  ["not_al", "Yapacaklar listesine not ekler.", { metin: "not" }],
+  ["yapacaklari_temizle", "Yapacaklar listesini temizler.", {}],
+  ["alarm", "Sabah alarmini acar/kapatir/atlatir.", { istek: "ornek: yarin alarm yapma, alarmi ac" }],
+  ["drive", "Drive'daki Jarvis klasorlerine bakar, dosya arar veya klasor acar.", { alt: "listele, ara veya klasor_ac", klasor: "ham, ornek, malzeme veya bitti", ad: "aranacak dosya ya da acilacak klasor adi" }],
+  ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
+    { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
+].map(([name, description, alanlar]) => ({
+  type: "function",
+  function: {
+    name, description,
+    parameters: { type: "object", properties: Object.fromEntries(Object.entries(alanlar).map(([k, v]) => [k, { type: "string", description: v }])) },
+  },
+}));
+
+async function aracCalistir(env, ad, a) {
+  const sonLink = await kvOku(env, "son_link", "");
+  const s = (x) => (x == null ? "" : String(x));
+  try {
+    if (ad === "kurgula") {
+      let link = s(a.link).startsWith("http") || s(a.link).startsWith("drive:") ? s(a.link) : "";
+      if (!link && env.DRIVE_SCRIPT_URL && (a.dosya || !sonLink)) {
+        const f = await driveBul(env, s(a.dosya) || "son").catch(() => null);
+        if (f) link = "drive:" + f.id + ":" + f.name.replace(/\s+/g, "_");
+      }
+      link = link || sonLink;
+      if (!link) return "HATA: video bulunamadi. Eren'den Drive linkini (yazarak) iste veya videoyu Drive Jarvis/ham klasorune koymasini soyle.";
+      return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, s(a.malzeme), a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
+    }
+    if (ad === "kurgu_durumu") { const d = await kurguDurumu(env); return typeof d === "string" ? d : { metin: d.cevap, link: d.link }; }
+    if (ad === "stil_cikar") {
+      let ls = s(a.linkler).split(/\s+/).filter(Boolean);
+      if (!ls.length && env.DRIVE_SCRIPT_URL) ls = (await driveListe(env, "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 4).map((f) => "drive:" + f.id);
+      if (!ls.length) return "HATA: ornek video yok. Eren'den link iste ya da Drive Jarvis/ornek klasorune koymasini soyle.";
+      return await stilCikar(env, ["stil çıkar", s(a.format) === "uzun" ? "uzun" : "shorts", a.ad ? "ad " + s(a.ad) : "", ...ls].join(" "));
+    }
+    if (ad === "ilanlar") return await ilanlar(env);
+    if (ad === "ilan_ara") return await ilanAra(env);
+    if (ad === "basvuru_yaz") { const b = await basvuruYaz(env, "başvuru yaz " + (s(a.numara) || "1")); return typeof b === "string" ? b : { metin: b.cevap, link: b.link }; }
+    if (ad === "hatirlat") return await hatirlatmaEkle(env, s(a.istek));
+    if (ad === "not_al") return await notAl(env, "not al: " + s(a.metin));
+    if (ad === "yapacaklari_temizle") { await kvYaz(env, "yapacaklar", []); return "Liste temizlendi."; }
+    if (ad === "alarm") return await alarmAyari(env, s(a.istek) + " alarm");
+    if (ad === "drive") return await driveIslem(env, a);
+    if (ad === "kendini_gelistir") return await kodIstegi(env, s(a.istek));
+    return "HATA: bilinmeyen arac";
+  } catch (e) {
+    return "HATA: " + e.message;
+  }
+}
+
+async function ajanCalistir(env, sistem, son) {
+  const model = env.AJAN_MODEL || env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const ajanSistem = sistem +
+    "\n\nSEN BIR AJANSIN: Eren bir is istediginde araclarini kullanarak yap; gerekirse birden fazla araci sirayla kullan. " +
+    "Bir aracin sonucu HATA ise sebebini Eren'e kisaca ve cozumuyle soyle. Istenen isi yapacak aracin yoksa: bunu nasil yapabilecegini " +
+    "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
+    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
+  const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
+  let link = null;
+  for (let adim = 0; adim < 5; adim++) {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ model, messages: mesajlar, tools: ARACLAR, tool_choice: "auto", max_tokens: 700,
+        ...(model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}) }),
+    });
+    if (!r.ok) throw new Error("Ajan " + r.status);
+    const m = (await r.json()).choices[0].message;
+    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link };
+    mesajlar.push({ role: "assistant", content: m.content || "", tool_calls: m.tool_calls });
+    for (const c of m.tool_calls) {
+      let a = {};
+      try { a = JSON.parse(c.function.arguments || "{}"); } catch (e) {}
+      const sonuc = await aracCalistir(env, c.function.name, a);
+      const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
+      if (sonuc && sonuc.link) link = sonuc.link;
+      mesajlar.push({ role: "tool", tool_call_id: c.id, content: String(metin).slice(0, 3000) });
+    }
+  }
+  return { cevap: "Bu iş beklediğimden uzun sürdü, adım adım tekrar söyler misin?", link };
+}
+
 // ---------------- Sohbet (yazili veya sesli) ----------------
 async function yapilacaklar(env) {
   if (!env.GITHUB_TOKEN) return "";
@@ -729,7 +822,7 @@ async function sohbetEt(env, metin, sesB64) {
     (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "") +
     (bekleyenKod ? "\n\nONAY BEKLEYEN KOD DEGISIKLIGIN: " + bekleyenKod.ozet + (bekleyenKod.neden ? " (" + bekleyenKod.neden + ")" : "") +
       ". Uygun bir anda Eren'e bundan bahset ve 'onayla' ya da 'iptal' demesini iste." : "");
-  let cevap, beyin, duydum = metin;
+  let cevap, beyin, duydum = metin, ajanLink = null;
 
   if (sesB64 && env.GROQ_API_KEY) {
     try {
@@ -739,7 +832,7 @@ async function sohbetEt(env, metin, sesB64) {
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
       if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
-      if (komut(metin) || (metin.length < 600 && (await niyetBul(env, metin)))) return { duydum: metin, komut: true };
+      if (komut(metin) || (!env.GROQ_API_KEY && metin.length < 600 && (await niyetBul(env, metin)))) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
     } catch (e) {
       // Groq olmazsa Gemini ile dene
@@ -776,7 +869,10 @@ async function sohbetEt(env, metin, sesB64) {
     try {
       if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
       else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
-      else if (beyin === "groq") cevap = await sorGroq(env, sistem, son);
+      else if (beyin === "groq") {
+        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; }
+        catch (e) { cevap = await sorGroq(env, sistem, son); }
+      }
       else cevap = await sorGemini(env, sistem, son, M.sohbet);
       if (!cevap) throw new Error("bos cevap");
     } catch (e) {
@@ -796,7 +892,7 @@ async function sohbetEt(env, metin, sesB64) {
   if (yeni.length) await kvYaz(env, "notlar", notlar.concat(yeni).slice(-100));
   gecmis.push({ role: "assistant", content: cevap });
   await kvYaz(env, "gecmis", gecmis.slice(-30));
-  return { duydum, cevap, beyin };
+  return { duydum, cevap, beyin, link: ajanLink };
 }
 
 export default {
@@ -899,7 +995,7 @@ export default {
       const linkVar = (metin.match(/https?:\/\/\S+/g) || []).find((l) => !l.includes("/folders/"));
       if (linkVar) await kvYaz(env, "son_link", linkVar);
       let k = komut(metin);
-      if (!k && metin.length < 600) {
+      if (!k && !env.GROQ_API_KEY && metin.length < 600) {
         const n = await niyetBul(env, metin);
         if (n && n.hazir) return Response.json({ cevap: n.hazir, beyin: "sistem" });
         if (n && n.drive) {

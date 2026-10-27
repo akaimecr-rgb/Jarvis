@@ -33,6 +33,10 @@
 - "not al: ..." -> yapacaklar listesine not. "listeyi temizle".
 - DOSYA AÇ'in Drive klasorunu acmasi icin Cloudflare'e DRIVE_URL (Text) eklenebilir.
 
+## Ajan modu
+- Jarvis artik ajan: istegi anlar, araclarini (kurgula, kurgu durumu, stil, ilanlar, basvuru, hatirlat, not, alarm, drive, kendini gelistir) sirayla kullanir.
+- Yapamadigi bir sey istenirse nasil yapabilecegini anlatir ve kendini_gelistir ile o ozelligi hazirlar; Eren "onayla" deyince eklenir.
+
 ## Sonra yapilacak gelistirmeler
 - Drive baglantisi (Eren karar verdi): Google Cloud hizmet hesabi ile Jarvis sadece Drive'daki "Jarvis" klasorunu gorecek (alt klasorler: ham, ornek, malzeme, bitti). Dosyalari adiyla bulacak, bitmis videoyu "bitti" klasorune koyacak.
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
