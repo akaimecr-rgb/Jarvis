@@ -358,21 +358,31 @@ function wavYap(pcm, hz) {
 }
 
 async function sesUret(env, metin) {
+  const kapali = await kvOku(env, "tts_kapali_kadar", 0);
+  if (Date.now() < kapali) throw new Error("TTS kotasi dolu");
   const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
   let sonHata;
   for (const model of modeller) {
     try { return await sesUretModel(env, metin, model); } catch (e) { sonHata = e; }
   }
+  if (String(sonHata).includes("429")) await kvYaz(env, "tts_kapali_kadar", Date.now() + 30 * 60 * 1000);
   throw sonHata;
 }
 
 async function sesUretModel(env, metin, model) {
+  const kontrol = new AbortController();
+  const zaman = setTimeout(() => kontrol.abort(), 8000);
+  try { return await sesUretModelIc(env, metin, model, kontrol.signal); } finally { clearTimeout(zaman); }
+}
+
+async function sesUretModelIc(env, metin, model, signal) {
   const tarz = env.SES_TARZI ||
     "Sakin, derin, kendinden emin ve kibar bir yapay zeka asistani gibi, biraz hizli ve akici konus: ";
   const r = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
     {
       method: "POST",
+      signal,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: tarz + metin }] }],
@@ -453,10 +463,12 @@ async function groqDinle(env, b64) {
   const j = await r.json();
   const seg = j.segments || [];
   // Emin degilse bos don (konusma yok / anlasilmadi)
-  if (seg.length && seg.every((x) => x.no_speech_prob > 0.6)) return "";
-  const guven = seg.length ? seg.reduce((a, x) => a + (x.avg_logprob || 0), 0) / seg.length : 0;
   const metin = (j.text || "").trim();
-  if (guven < -1.1 && metin.split(/\s+/).length <= 3) return "?";
+  if (!metin) return "";
+  // Sadece neredeyse kesin sessizlikse yok say
+  if (seg.length && seg.every((x) => x.no_speech_prob > 0.9) && metin.split(/\s+/).length <= 2) return "";
+  const guven = seg.length ? seg.reduce((a, x) => a + (x.avg_logprob || 0), 0) / seg.length : 0;
+  if (guven < -1.5 && metin.split(/\s+/).length <= 2) return "?";
   return metin;
 }
 
