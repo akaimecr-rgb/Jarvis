@@ -333,7 +333,10 @@ if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){va
 
 // Video oynatici ve linkler
 function linkAc(u){
-  if(u.indexOf("/video/")>=0){var v=$("oynatVideo");v.src=u;$("oynat").style.display="flex";v.play().catch(function(){});
+  gunlukYaz("","Açılıyor: "+u.slice(0,70));
+  if(u.indexOf("/video/")>=0){var v=$("oynatVideo");
+    v.onerror=function(){gunlukYaz("","Video oynatılamadı (kod "+(v.error&&v.error.code)+"), tarayıcıda açıyorum.");$("oynat").style.display="none";if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank")};
+    v.src=u;$("oynat").style.display="flex";v.play().catch(function(){});
     $("oynatIndir").onclick=function(){if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank");gunlukYaz("","İndirme başladı, bildirim çubuğundan takip edebilirsin.")};return}
   if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank");
 }
