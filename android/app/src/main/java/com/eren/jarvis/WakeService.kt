@@ -28,7 +28,8 @@ class WakeService : Service(), RecognitionListener {
         private var kelimeler: List<String> = emptyList()
         // Jarvis'e benzeyen kelimeler (modelde hangisi varsa)
         val ADAYLAR = listOf("jarvis", "travis", "jervis", "harvis", "service", "jarvas")
-        val TETIK = Regex("jar ?vis|travis|jervis|harvis|jarvas|service")
+        // Sadece kisa ve tek basina soylenen "Jarvis" benzeri kelimeler
+        val TETIK = Regex("^(hey |hay |ey )?(jar ?vis|jervis|jarvas|jarvi|travis)$")
         @Volatile var sonDuyulan = ""
     }
 
@@ -108,7 +109,7 @@ class WakeService : Service(), RecognitionListener {
         if (tetiklendi || json == null) return
         val metin = Regex("\"(partial|text)\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(2) ?: ""
         if (metin.isNotBlank() && metin != "[unk]") sonDuyulan = metin
-        if (TETIK.containsMatchIn(metin)) {
+        if (TETIK.matches(metin.trim())) {
             tetiklendi = true
             ana.post {
                 birak("konuşuyor")
@@ -117,7 +118,7 @@ class WakeService : Service(), RecognitionListener {
         }
     }
 
-    override fun onPartialResult(hypothesis: String?) = kontrol(hypothesis)
+    override fun onPartialResult(hypothesis: String?) { /* yanlis tetiklenmesin diye sadece tamamlanan sonuclara bakilir */ }
     override fun onResult(hypothesis: String?) = kontrol(hypothesis)
     override fun onFinalResult(hypothesis: String?) = kontrol(hypothesis)
     override fun onError(exception: Exception?) { durum = "hata: " + exception?.message; birak(durum); ana.postDelayed({ dinle() }, 3000) }

@@ -342,6 +342,7 @@ async function notAl(env, metin) {
   return "Not aldım: " + icerik;
 }
 
+const UYKU = /uyku modu|iyi geceler|ben yat[ıi]yorum|uyuyorum/i;
 const BITIS = /kapat[ıi]yorum|görüşürüz|gorusuruz|tamam kapat/i;
 
 function bugunTR(gun = 0) {
@@ -580,6 +581,7 @@ async function sohbetEt(env, metin, sesB64) {
       duydum = metin;
       if (!metin) return { duydum: "", cevap: "", sessiz: true, beyin: "sistem" };
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
+      if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
       if (komut(metin)) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
@@ -605,6 +607,7 @@ async function sohbetEt(env, metin, sesB64) {
     cevap = String(j.cevap || "");
     if (hayaletMi(duydum)) return { duydum: "", cevap: "", sessiz: true, beyin: "sistem" };
     const k = komut(duydum);
+      if (UYKU.test(duydum)) return { duydum: duydum, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
     if (BITIS.test(duydum)) return { duydum, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
     if (k) return { duydum, komut: true };
     gecmis.push({ role: "user", content: duydum });
@@ -736,7 +739,8 @@ export default {
       const body = await request.json();
       const metin = body.metin || "";
 
-      const k = komut(metin);
+          if (UYKU.test(metin)) return Response.json({ cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", uyku: true, beyin: "sistem" });
+  const k = komut(metin);
       if (k) {
         if (!env.GITHUB_TOKEN && !["alarm", "hatirlat", "not", "temizle"].includes(k)) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
         try {

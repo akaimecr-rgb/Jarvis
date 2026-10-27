@@ -251,6 +251,7 @@ async function gonder(metin,sesli){
     var r=await fetch("/sohbet",{method:"POST",headers:H(),body:JSON.stringify({metin:metin})});
     if(r.status===401){try{localStorage.removeItem("jarvis_sifre")}catch(e){}gunlukYaz("jarvis","Şifre yanlış, ayarlardan düzelt.");durum("hazir");return}
     var v=await r.json();var li=gunlukYaz("jarvis","Jarvis: "+v.cevap);
+    if(v.uyku){await konus(v.cevap);try{if(window.Android&&Android.uyku)Android.uyku()}catch(e){}return}
     if(v.link){var a=document.createElement("a");a.href=v.link;a.target="_blank";a.textContent=" [AÇ]";li.appendChild(a)}
     durumYenile();
     if(sesli)await konus(v.cevap);else durum("hazir");
@@ -274,6 +275,7 @@ async function serbestMod(karsila){
       if(v.komut){await gonder(v.duydum,true)}
       else{gunlukYaz("jarvis","Jarvis: "+v.cevap);await konus(v.cevap)}
       durumYenile();
+      if(v.uyku){try{if(window.Android&&Android.uyku){Android.uyku();return}}catch(e){}break}
       if(v.bitis)break;
     }catch(e){gunlukYaz("jarvis","Bağlantı sorunu, tekrar dinliyorum.");durum("hazir")}
   }

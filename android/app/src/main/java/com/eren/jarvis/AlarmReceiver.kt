@@ -13,6 +13,7 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
         alarmKur(c) // yarinin alarmi
+        c.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putBoolean("uyku", false).apply() // uyku modu biter
         servisKomutu(c, WakeService.DURAKLAT)
         jarvisiAc(c, "alarm")
     }

@@ -119,6 +119,10 @@ class JarvisActivity : Activity() {
             soyle(metin, id)
         }
         @JavascriptInterface fun sustur() { tts?.stop() }
+        @JavascriptInterface fun uyku() {
+            getSharedPreferences("jarvis", MODE_PRIVATE).edit().putBoolean("uyku", true).apply()
+            runOnUiThread { finish() }
+        }
         @JavascriptInterface fun ac(url: String) {
             runOnUiThread {
                 try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
@@ -140,7 +144,8 @@ class JarvisActivity : Activity() {
         }
         tts?.shutdown()
         web.destroy()
-        servisKomutu(this, WakeService.DEVAM)
+        if (!getSharedPreferences("jarvis", MODE_PRIVATE).getBoolean("uyku", false)) servisKomutu(this, WakeService.DEVAM)
+        else servisKomutu(this, WakeService.DURAKLAT)
         super.onDestroy()
     }
 }
