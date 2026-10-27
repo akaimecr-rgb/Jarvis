@@ -159,9 +159,21 @@ async function kodIstegi(env, istek) {
   const mesaj = [{ role: "user", content: "ISTEK: " + istek + "\n\nMEVCUT KOD:\n" + CIT + "js\n" + icerik + "\n" + CIT }];
   let cevap;
   try {
-    cevap = await sorGemini(env, sistem, mesaj, M.kod);
-  } catch (e) {
-    cevap = await sorOpenRouter(env, sistem, mesaj, M.kodYedek);
+    if (!env.ANTHROPIC_API_KEY) throw new Error("claude yok");
+    // Claude Sonnet ile kod yaz (anahtar varsa)
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: env.CLAUDE_KOD_MODEL || "claude-sonnet-5-5", max_tokens: 32000, system: sistem, messages: mesaj }),
+    });
+    if (!r.ok) throw new Error("Claude " + r.status);
+    cevap = (await r.json()).content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  } catch (e0) {
+    try {
+      cevap = await sorGemini(env, sistem, mesaj, M.kod);
+    } catch (e) {
+      cevap = await sorOpenRouter(env, sistem, mesaj, M.kodYedek);
+    }
   }
   const bas = cevap.indexOf(CIT);
   const son = cevap.lastIndexOf(CIT);
