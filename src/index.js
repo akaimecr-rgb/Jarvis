@@ -827,6 +827,41 @@ async function ajanCalistir(env, sistem, son) {
   return { cevap: "Bu iş beklediğimden uzun sürdü, adım adım tekrar söyler misin?", link };
 }
 
+// Claude ile ajan (ANTHROPIC_API_KEY varsa yonetici beyin Claude olur)
+async function ajanClaude(env, sistem, son) {
+  const model = env.CLAUDE_AJAN_MODEL || "claude-haiku-5-5";
+  const araclar = ARACLAR.map((t) => ({ name: t.function.name, description: t.function.description, input_schema: t.function.parameters }));
+  const ajanSistem = sistem +
+    "\n\nSEN BIR AJANSIN: Eren bir is istediginde araclarini kullanarak yap; gerekirse birden fazla araci sirayla kullan. " +
+    "Bir aracin sonucu HATA ise sebebini Eren'e kisaca ve cozumuyle soyle. Istenen isi yapacak aracin yoksa: bunu nasil yapabilecegini " +
+    "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
+    "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
+  const mesajlar = son.map((m) => ({ role: m.role, content: m.content }));
+  let link = null;
+  for (let adim = 0; adim < 6; adim++) {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 1024, system: ajanSistem, tools: araclar, messages: mesajlar }),
+    });
+    if (!r.ok) throw new Error("Claude " + r.status);
+    const j = await r.json();
+    const kullanimlar = (j.content || []).filter((b) => b.type === "tool_use");
+    const yazi = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    if (!kullanimlar.length) return { cevap: yazi, link };
+    mesajlar.push({ role: "assistant", content: j.content });
+    const sonuclar = [];
+    for (const u of kullanimlar) {
+      const sonuc = await aracCalistir(env, u.name, u.input || {});
+      const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
+      if (sonuc && sonuc.link) link = sonuc.link;
+      sonuclar.push({ type: "tool_result", tool_use_id: u.id, content: String(metin).slice(0, 3000) });
+    }
+    mesajlar.push({ role: "user", content: sonuclar });
+  }
+  return { cevap: "Bu iş beklediğimden uzun sürdü, adım adım tekrar söyler misin?", link };
+}
+
 // ---------------- Sohbet (yazili veya sesli) ----------------
 async function yapilacaklar(env) {
   if (!env.GITHUB_TOKEN) return "";
@@ -897,12 +932,20 @@ async function sohbetEt(env, metin, sesB64) {
   } else {
     gecmis.push({ role: "user", content: metin });
     beyin = beyinSec(metin);
-    if (beyin === "gemini" && env.GROQ_API_KEY) beyin = "groq";
+    if (beyin === "gemini" && env.ANTHROPIC_API_KEY) beyin = "claude-ajan";
+    else if (beyin === "gemini" && env.GROQ_API_KEY) beyin = "groq";
     const son = gecmis.slice(-30);
     while (son.length && son[0].role !== "user") son.shift();
     try {
       if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
       else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
+      else if (beyin === "claude-ajan") {
+        try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; }
+        catch (e) {
+          beyin = "groq";
+          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link;
+        }
+      }
       else if (beyin === "groq") {
         try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; }
         catch (e) { cevap = await sorGroq(env, sistem, son); }

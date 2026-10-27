@@ -47,5 +47,5 @@
 - Discord ilanlari: Discord botu acilip Eren'in izinli oldugu sunuculara eklenmeli (Eren'in kurulum yapmasi gerekir).
 - Ilanlardaki ornek video linklerinden otomatik stil cikarma.
 - Malzeme klasorundeki muzik ve logoyu kurguya otomatik yerlestirmek.
-- Para kazanmaya baslayinca kod yazmayi Claude API'ye gecirmek.
+- Para kazanmaya baslayinca Cloudflare'e ANTHROPIC_API_KEY eklemek: yonetici beyin otomatik Claude (Haiku) olur, Groq yedek kalir. Konsolda aylik harcama limiti koy.
 - Uzun vadeli hedef (isler buyuyunce): Eren'e ozel model. Jarvis birkac ay veri biriktirir (sohbetler, stil dosyalari, musteri mesajlari) -> acik bir model (Llama/Qwen/Gemma) LoRA ile egitilir -> Jarvis'e baglanir. Jarvis bu modeli "kisisel beyin" olarak kullanir, ozel isler icin API'deki diger modelleri (Claude, Gemini, Groq) yonetir. Bilgi icin ayrica bilgi bankasi (RAG) eklenir.
