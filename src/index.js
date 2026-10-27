@@ -1571,6 +1571,25 @@ export default {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     env.__kok = url.origin;
+    if (request.method === "POST" && url.pathname === "/yukleme-baslat") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      try {
+        const { ad = "video.mp4", boyut = 0, tur = "video/mp4", klasor = "ham" } = await request.json();
+        const b = await driveBilgi(env);
+        if (!b) return Response.json({ hata: "Drive köprüsü kurulmadı" }, { status: 400 });
+        const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + b.token, "content-type": "application/json; charset=UTF-8", "X-Upload-Content-Type": tur, ...(boyut ? { "X-Upload-Content-Length": String(boyut) } : {}) },
+          body: JSON.stringify({ name: ad, parents: [b.klasorler[klasor] || b.klasorler.ham] }),
+        });
+        const yer = r.headers.get("location");
+        if (!yer) return Response.json({ hata: "Drive yükleme başlatılamadı (" + r.status + ")" }, { status: 502 });
+        await gunlukEkle(env, "Telefondan Drive'a video yükleniyor: " + ad);
+        return Response.json({ url: yer });
+      } catch (e) {
+        return Response.json({ hata: e.message }, { status: 502 });
+      }
+    }
     if (request.method === "GET" && url.pathname === "/portfolyo") {
       return new Response(await portfolyoSayfa(env), { headers: { "content-type": "text/html; charset=utf-8" } });
     }

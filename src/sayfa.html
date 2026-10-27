@@ -426,6 +426,9 @@ async function alarmMod(){
 
 if(MOD==="serbest")setTimeout(serbestMod,300);
 if(MOD==="alarm")setTimeout(alarmMod,300);
+if(MOD==="paylas")setTimeout(async function(){var ad=new URLSearchParams(location.search).get("ad")||"video";
+  gunlukYaz("","📤 Drive'a yüklendi: "+ad);await konus("Videoyu Drive'a yükledim. Nasıl kurgulayayım? GKey stili mi, başka bir şey mi?");
+  var son=await (async function(){return null})();serbestMod(false)},400);
 if(MOD==="hatirlat")setTimeout(function(){setTimeout(androidBitti,25000)},300);
 </script>
 </body>

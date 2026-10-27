@@ -36,6 +36,18 @@
             android:turnScreenOn="true"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity
+            android:name=".PaylasActivity"
+            android:exported="true"
+            android:label="Jarvis'e gönder"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".WakeService"
             android:exported="false"
