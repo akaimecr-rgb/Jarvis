@@ -49,7 +49,6 @@ class MainActivity : Activity() {
 
         k.addView(dugme("1) Kaydet ve Jarvis'i başlat") {
             Ayarlar.kaydet(this, "", sifre.text.toString(), saat.text.toString(), alarmAcik.isChecked)
-            servisKomutu(this, WakeService.DURDUR)
             servisKomutu(this, WakeService.BASLAT)
             alarmKur(this)
             k.postDelayed({ guncelle() }, 1500)
@@ -65,6 +64,7 @@ class MainActivity : Activity() {
         })
         k.addView(dugme("Jarvis'i şimdi aç") { jarvisiAc(this, "serbest") })
         k.addView(dugme("Alarmı şimdi dene") { jarvisiAc(this, "alarm") })
+        k.addView(dugme("Dinlemeyi aç") { servisKomutu(this, WakeService.BASLAT); k.postDelayed({ guncelle() }, 1500) })
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#05080f")); addView(k) })

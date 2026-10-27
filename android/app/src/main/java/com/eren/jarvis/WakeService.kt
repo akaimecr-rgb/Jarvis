@@ -35,10 +35,10 @@ class WakeService : Service(), RecognitionListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action ?: BASLAT) {
-            BASLAT -> { onPlana(); hazirla() }
+            BASLAT -> { birak("başlıyor"); onPlana(); hazirla() }
             DEVAM -> { if (calisiyor) ana.postDelayed({ dinle() }, 800) }
             DURAKLAT -> birak("duraklatıldı")
-            DURDUR -> { birak("kapalı"); calisiyor = false; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            DURDUR -> { birak("kapalı"); calisiyor = false; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
         }
         return START_STICKY
     }
