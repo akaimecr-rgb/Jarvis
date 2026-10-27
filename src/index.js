@@ -476,7 +476,7 @@ async function sorGroq(env, sistem, gecmis) {
 }
 
 // Whisper'in sessizlikte uydurdugu bilinen Turkce cumleler
-const HAYALET = /altyaz[ıi]|m\.?\s?k\.?$|abone ol|izledi[gğ]iniz i[cç]in|te[sş]ekk[uü]rler\.?$|bir sonraki videoda|kanal[ıi]ma|^\W*$/i;
+const HAYALET = /altyaz[ıi]|m\.?\s?k\.?$|abone ol|izledi[gğ]iniz i[cç]in|bir sonraki videoda|kanal[ıi]ma|^\W*$/i;
 function hayaletMi(metin) {
   const t = (metin || "").trim();
   return !t || (t.split(/\s+/).length <= 6 && HAYALET.test(t));
