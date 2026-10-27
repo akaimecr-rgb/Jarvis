@@ -339,13 +339,17 @@ $("gunlukBtn").onclick=function(){$("app").classList.toggle("genis")};
 
 // ---------------- Sabah alarmi ----------------
 async function alarmMod(){
-  var a=null;try{a=await (await fetch("/alarm",{headers:H()})).json();if(a.atla){androidBitti();return}}catch(e){}
+  var test=new URLSearchParams(location.search).get("test")==="1";
+  var a=null;try{a=await (await fetch("/alarm",{headers:H()})).json();if(a.atla&&!test){gunlukYaz("","Bugün alarm atlandı.");await bekle(1500);androidBitti();return}}catch(e){}
   var mesaj=a&&a.mesaj?a.mesaj:"Songül Hanım, Eren'i uyandır.";
   var ses=null;try{ses=await sesAl(mesaj)}catch(e){}
   var bas=Date.now();
   while(Date.now()-bas<30*60*1000){
     gunlukYaz("jarvis",mesaj);durum("konusuyor");
-    if(ses)await cal(ses);else await tarayiciSesi(mesaj);
+    if(!ses){try{ses=await sesAl(mesaj)}catch(e){}}
+    var calindi=false;
+    if(ses){var t0=Date.now();await cal(ses);calindi=Date.now()-t0>800}
+    if(!calindi)await tarayiciSesi(mesaj);
     var b64=await dinleVAD(7000);
     if(b64){try{
       var v=await (await fetch("/dinle",{method:"POST",headers:H(),body:JSON.stringify({ses:b64})})).json();

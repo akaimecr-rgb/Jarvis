@@ -23,6 +23,8 @@ class JarvisActivity : Activity() {
     private var eskiSes = -1
     private var tts: TextToSpeech? = null
     private var ttsHazir = false
+    private val bekleyen = mutableListOf<Pair<String, String>>()
+    private var alarmModu = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,6 +63,7 @@ class JarvisActivity : Activity() {
                     @Deprecated("eski") override fun onError(id: String?) { bitir(id) }
                 })
                 ttsHazir = true
+                synchronized(bekleyen) { bekleyen.forEach { (m, id) -> soyle(m, id) }; bekleyen.clear() }
             }
         }
         web.addJavascriptInterface(Kopru(), "Android")
@@ -77,9 +80,11 @@ class JarvisActivity : Activity() {
     private fun yukle(i: Intent?) {
         val mod = i?.getStringExtra("mod") ?: ""
         val am = getSystemService(AudioManager::class.java)
-        if (mod == "alarm") {
+        alarmModu = mod.startsWith("alarm")
+        if (alarmModu) {
             if (eskiSes < 0) eskiSes = am.getStreamVolume(AudioManager.STREAM_MUSIC)
             am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
+            try { am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0) } catch (_: Exception) {}
         }
         web.loadUrl(if (mod.isEmpty()) JARVIS_URL else JARVIS_URL + "?mod=" + mod)
     }
@@ -89,10 +94,17 @@ class JarvisActivity : Activity() {
         runOnUiThread { web.evaluateJavascript("window.__konusBitti && window.__konusBitti('" + id + "')", null) }
     }
 
+    private fun soyle(metin: String, id: String) {
+        val p = Bundle()
+        if (alarmModu) p.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
+        p.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f)
+        tts?.speak(metin, TextToSpeech.QUEUE_FLUSH, p, id)
+    }
+
     inner class Kopru {
         @JavascriptInterface fun konus(metin: String, id: String) {
-            if (!ttsHazir) { bitir(id); return }
-            tts?.speak(metin, TextToSpeech.QUEUE_FLUSH, null, id)
+            if (!ttsHazir) { synchronized(bekleyen) { bekleyen.add(metin to id) }; return }
+            soyle(metin, id)
         }
         @JavascriptInterface fun sustur() { tts?.stop() }
         @JavascriptInterface fun ac(url: String) {

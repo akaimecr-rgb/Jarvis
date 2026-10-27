@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         })
         k.addView(dugme("Jarvis ekranına dön") { startActivity(Intent(this, JarvisActivity::class.java)); finish() })
         k.addView(dugme("Konuşmayı şimdi başlat") { jarvisiAc(this, "serbest") })
-        k.addView(dugme("Alarmı şimdi dene") { jarvisiAc(this, "alarm") })
+        k.addView(dugme("Alarmı şimdi dene") { jarvisiAc(this, "alarm&test=1") })
         k.addView(dugme("Dinlemeyi aç") { servisKomutu(this, WakeService.BASLAT); k.postDelayed({ guncelle() }, 1500) })
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })
 
