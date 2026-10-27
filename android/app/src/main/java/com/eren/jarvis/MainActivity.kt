@@ -40,8 +40,6 @@ class MainActivity : Activity() {
         k.addView(yazi("Jarvis", 30f).apply { gravity = Gravity.CENTER })
         durum = yazi("")
         k.addView(durum)
-        k.addView(yazi("Picovoice anahtarı (console.picovoice.ai)"))
-        val anahtar = kutu("AccessKey", Ayarlar.anahtar(this), true); k.addView(anahtar)
         k.addView(yazi("Jarvis şifresi (APP_SECRET)"))
         val sifre = kutu("şifre", Ayarlar.sifre(this), true); k.addView(sifre)
         k.addView(yazi("Sabah alarmı saati"))
@@ -50,7 +48,7 @@ class MainActivity : Activity() {
         k.addView(alarmAcik)
 
         k.addView(dugme("1) Kaydet ve Jarvis'i başlat") {
-            Ayarlar.kaydet(this, anahtar.text.toString(), sifre.text.toString(), saat.text.toString(), alarmAcik.isChecked)
+            Ayarlar.kaydet(this, "", sifre.text.toString(), saat.text.toString(), alarmAcik.isChecked)
             servisKomutu(this, WakeService.DURDUR)
             servisKomutu(this, WakeService.BASLAT)
             alarmKur(this)

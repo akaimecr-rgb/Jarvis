@@ -1,7 +1,5 @@
 package com.eren.jarvis
 
-import ai.picovoice.porcupine.Porcupine
-import ai.picovoice.porcupine.PorcupineManager
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -11,9 +9,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
+import org.vosk.android.StorageService
 
-/** Arka planda "Jarvis" kelimesini dinler. */
-class WakeService : Service() {
+/** Arka planda "Jarvis" kelimesini dinler (Vosk, cevrimdisi, anahtarsiz). */
+class WakeService : Service(), RecognitionListener {
     companion object {
         const val BASLAT = "baslat"
         const val DURAKLAT = "duraklat"
@@ -21,17 +24,19 @@ class WakeService : Service() {
         const val DURDUR = "durdur"
         @Volatile var calisiyor = false
         @Volatile var durum = "kapalı"
+        private var model: Model? = null
     }
 
-    private var pm: PorcupineManager? = null
+    private var ss: SpeechService? = null
+    private var tetiklendi = false
     private val ana = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action ?: BASLAT) {
-            BASLAT -> { onPlana(); dinle() }
-            DEVAM -> { if (calisiyor) dinle() }
+            BASLAT -> { onPlana(); hazirla() }
+            DEVAM -> { if (calisiyor) ana.postDelayed({ dinle() }, 800) }
             DURAKLAT -> birak("duraklatıldı")
             DURDUR -> { birak("kapalı"); calisiyor = false; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
         }
@@ -53,34 +58,51 @@ class WakeService : Service() {
         calisiyor = true
     }
 
+    private fun hazirla() {
+        if (model != null) { dinle(); return }
+        durum = "model hazırlanıyor..."
+        StorageService.unpack(applicationContext, "model-en-us", "model",
+            { m -> model = m; dinle() },
+            { e -> durum = "model hatası: " + e.message })
+    }
+
     private fun dinle() {
-        if (pm != null) return
-        val anahtar = Ayarlar.anahtar(this)
-        if (anahtar.isEmpty()) { durum = "Picovoice anahtarı yok"; return }
+        val m = model ?: return
+        if (ss != null || !calisiyor) return
         try {
-            pm = PorcupineManager.Builder()
-                .setAccessKey(anahtar)
-                .setKeyword(Porcupine.BuiltInKeyword.JARVIS)
-                .setSensitivity(0.65f)
-                .build(applicationContext) { _ -> ana.post { uyandi() } }
-            pm?.start()
+            val rec = Recognizer(m, 16000.0f, "[\"jarvis\", \"[unk]\"]")
+            ss = SpeechService(rec, 16000.0f)
+            ss?.startListening(this)
+            tetiklendi = false
             durum = "dinliyor"
         } catch (e: Exception) {
-            pm = null
+            ss = null
             durum = "hata: " + (e.message ?: e.javaClass.simpleName)
         }
     }
 
     private fun birak(yeniDurum: String) {
-        try { pm?.stop(); pm?.delete() } catch (_: Exception) {}
-        pm = null
+        try { ss?.stop(); ss?.shutdown() } catch (_: Exception) {}
+        ss = null
         durum = yeniDurum
     }
 
-    private fun uyandi() {
-        birak("konuşuyor")
-        jarvisiAc(this, "serbest")
+    private fun kontrol(json: String?) {
+        if (tetiklendi || json == null) return
+        if (json.contains("jarvis")) {
+            tetiklendi = true
+            ana.post {
+                birak("konuşuyor")
+                jarvisiAc(this, "serbest")
+            }
+        }
     }
+
+    override fun onPartialResult(hypothesis: String?) = kontrol(hypothesis)
+    override fun onResult(hypothesis: String?) = kontrol(hypothesis)
+    override fun onFinalResult(hypothesis: String?) = kontrol(hypothesis)
+    override fun onError(exception: Exception?) { durum = "hata: " + exception?.message; birak(durum); ana.postDelayed({ dinle() }, 3000) }
+    override fun onTimeout() { birak("zaman aşımı"); dinle() }
 
     override fun onDestroy() {
         birak("kapalı")

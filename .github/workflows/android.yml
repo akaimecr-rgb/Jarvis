@@ -25,6 +25,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
+      - name: Ses modelini indir (Vosk, "Jarvis" kelimesi icin)
+        run: |
+          curl -sL https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -o /tmp/m.zip
+          unzip -q /tmp/m.zip -d /tmp/m
+          mkdir -p android/app/src/main/assets/model-en-us
+          cp -r /tmp/m/vosk-model-small-en-us-0.15/* android/app/src/main/assets/model-en-us/
+          echo "small-en-us-0.15" > android/app/src/main/assets/model-en-us/uuid
+          du -sh android/app/src/main/assets/model-en-us
       - name: APK derle
         run: |
           set -o pipefail
