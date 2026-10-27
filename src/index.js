@@ -274,10 +274,11 @@ async function ilanlar(env) {
   const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
   if (!liste.length) return "Henüz uygun ilan bulamadım. İlan avı 2 saatte bir çalışıyor; 'ilan ara' dersen hemen ararım.";
   await kvYaz(env, "son_ilanlar", liste.slice(0, 10));
-  return (
-    liste.slice(0, 5).map((d, i) => `${i + 1}) ${d.ozet} Bütçe: ${d.butce}. Puan ${d.puan}/10. Stil adı: ${d.slug}.`).join(" ") +
-    " Başvuru için 'başvuru yaz' ve numarasını söyle."
-  );
+  return {
+    metin: liste.slice(0, 5).map((d, i) => `${i + 1}) ${d.ozet} Bütçe: ${d.butce}. Puan ${d.puan}/10.`).join(" ") +
+      " İlanlara aşağıdaki linklerden ulaşabilirsin. Başvuru mesajı için 'başvuru yaz' ve numarasını söyle.",
+    linkler: liste.slice(0, 5).map((d, i) => ({ ad: "İLAN " + (i + 1), url: d.link })),
+  };
 }
 
 async function basvuruYaz(env, metin) {
@@ -816,7 +817,7 @@ async function ajanCalistir(env, sistem, son) {
     "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
     "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
-  let link = null;
+  let link = null, linkler = null;
   for (let adim = 0; adim < 5; adim++) {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -826,7 +827,7 @@ async function ajanCalistir(env, sistem, son) {
     });
     if (!r.ok) throw new Error("Ajan " + r.status);
     const m = (await r.json()).choices[0].message;
-    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link };
+    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link, linkler };
     mesajlar.push({ role: "assistant", content: m.content || "", tool_calls: m.tool_calls });
     for (const c of m.tool_calls) {
       let a = {};
@@ -834,6 +835,7 @@ async function ajanCalistir(env, sistem, son) {
       const sonuc = await aracCalistir(env, c.function.name, a);
       const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
       if (sonuc && sonuc.link) link = sonuc.link;
+      if (sonuc && sonuc.linkler) linkler = sonuc.linkler;
       mesajlar.push({ role: "tool", tool_call_id: c.id, content: String(metin).slice(0, 3000) });
     }
   }
@@ -850,7 +852,7 @@ async function ajanClaude(env, sistem, son) {
     "1-2 cumleyle anlat ve kendini_gelistir araciyla o yetenegi ekleyen degisikligi hazirla (Eren onaylayinca eklenir). " +
     "Arac kullanmadan bir isi yaptim deme. Normal sohbet ve sorularda arac kullanma, dogrudan cevap ver.";
   const mesajlar = son.map((m) => ({ role: m.role, content: m.content }));
-  let link = null;
+  let link = null, linkler = null;
   for (let adim = 0; adim < 6; adim++) {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -861,13 +863,14 @@ async function ajanClaude(env, sistem, son) {
     const j = await r.json();
     const kullanimlar = (j.content || []).filter((b) => b.type === "tool_use");
     const yazi = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-    if (!kullanimlar.length) return { cevap: yazi, link };
+    if (!kullanimlar.length) return { cevap: yazi, link, linkler };
     mesajlar.push({ role: "assistant", content: j.content });
     const sonuclar = [];
     for (const u of kullanimlar) {
       const sonuc = await aracCalistir(env, u.name, u.input || {});
       const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
       if (sonuc && sonuc.link) link = sonuc.link;
+      if (sonuc && sonuc.linkler) linkler = sonuc.linkler;
       sonuclar.push({ type: "tool_result", tool_use_id: u.id, content: String(metin).slice(0, 3000) });
     }
     mesajlar.push({ role: "user", content: sonuclar });
@@ -904,7 +907,7 @@ async function sohbetEt(env, metin, sesB64) {
     (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "") +
     (bekleyenKod ? "\n\nONAY BEKLEYEN KOD DEGISIKLIGIN: " + bekleyenKod.ozet + (bekleyenKod.neden ? " (" + bekleyenKod.neden + ")" : "") +
       ". Uygun bir anda Eren'e bundan bahset ve 'onayla' ya da 'iptal' demesini iste." : "");
-  let cevap, beyin, duydum = metin, ajanLink = null;
+  let cevap, beyin, duydum = metin, ajanLink = null, ajanLinkler = null;
 
   if (sesB64 && env.GROQ_API_KEY) {
     try {
@@ -953,14 +956,14 @@ async function sohbetEt(env, metin, sesB64) {
       if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
       else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
       else if (beyin === "claude-ajan") {
-        try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; }
+        try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; }
         catch (e) {
           beyin = "groq";
-          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link;
+          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler;
         }
       }
       else if (beyin === "groq") {
-        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; }
+        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; }
         catch (e) { cevap = await sorGroq(env, sistem, son); }
       }
       else cevap = await sorGemini(env, sistem, son, M.sohbet);
@@ -987,7 +990,7 @@ async function sohbetEt(env, metin, sesB64) {
     v.push({ z: Date.now(), eren: duydum, jarvis: cevap, kaynak: beyin === "groq" ? "gpt-oss" : beyin, puan: 0 });
     await kvYaz(env, "veri_bugun", v.slice(-300));
   }
-  return { duydum, cevap, beyin, link: ajanLink };
+  return { duydum, cevap, beyin, link: ajanLink, linkler: ajanLinkler };
 }
 
 export default {
@@ -1136,7 +1139,11 @@ export default {
           else if (k === "kod") c = await kodIstegi(env, metin.replace(/^kod:\s*/i, ""));
           else if (k === "kurgula") c = await kurgula(env, metin);
           else if (k === "stil") c = await stilCikar(env, metin);
-          else if (k === "ilanlar") c = await ilanlar(env);
+          else if (k === "ilanlar") {
+            const il = await ilanlar(env);
+            if (typeof il !== "string") return Response.json({ cevap: il.metin, linkler: il.linkler, beyin: "sistem" });
+            c = il;
+          }
           else if (k === "alarm") c = await alarmAyari(env, metin);
           else if (k === "hatirlat") c = await hatirlatmaEkle(env, metin);
           else if (k === "not") c = await notAl(env, metin);

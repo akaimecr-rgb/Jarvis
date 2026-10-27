@@ -260,6 +260,7 @@ async function gonder(metin,sesli){
     var v=await r.json();var li=gunlukYaz("jarvis","Jarvis: "+v.cevap);
     if(v.uyku){await konus(v.cevap);try{if(window.Android&&Android.uyku)Android.uyku()}catch(e){}return}
     if(v.link){var a=document.createElement("a");a.href=v.link;a.target="_blank";a.textContent=" [AÇ]";a.onclick=function(e){if(window.Android&&Android.ac){e.preventDefault();Android.ac(this.href)}};li.appendChild(a)}
+    (v.linkler||[]).forEach(function(l){var x=document.createElement("a");x.href=l.url;x.target="_blank";x.textContent=" ["+l.ad+"]";li.appendChild(x)});
     durumYenile();
     if(sesli)await konus(v.cevap);else durum("hazir");
   }catch(e){gunlukYaz("jarvis","Sunucuya ulaşamadım.");durum("hazir")}
@@ -280,7 +281,7 @@ async function serbestMod(karsila){
       if(v.sessiz){durum("hazir");continue}
       if(v.duydum)gunlukYaz("sen","Sen: "+v.duydum);
       if(v.komut){await gonder(v.duydum,true)}
-      else{var li2=gunlukYaz("jarvis","Jarvis: "+v.cevap);if(v.link){var a2=document.createElement("a");a2.href=v.link;a2.target="_blank";a2.textContent=" [AÇ]";a2.onclick=function(e){if(window.Android&&Android.ac){e.preventDefault();Android.ac(this.href)}};li2.appendChild(a2)}await konus(v.cevap)}
+      else{var li2=gunlukYaz("jarvis","Jarvis: "+v.cevap);if(v.link){var a2=document.createElement("a");a2.href=v.link;a2.target="_blank";a2.textContent=" [AÇ]";a2.onclick=function(e){if(window.Android&&Android.ac){e.preventDefault();Android.ac(this.href)}};li2.appendChild(a2)}(v.linkler||[]).forEach(function(l){var x=document.createElement("a");x.href=l.url;x.target="_blank";x.textContent=" ["+l.ad+"]";li2.appendChild(x)});await konus(v.cevap)}
       durumYenile();
       if(v.uyku){try{if(window.Android&&Android.uyku){Android.uyku();return}}catch(e){}break}
       if(v.bitis)break;
