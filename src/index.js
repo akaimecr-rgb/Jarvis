@@ -9,7 +9,10 @@ const SISTEM_TEMEL =
   "Cevaplarin kisa olsun (1-3 cumle), cunku sesli okunacak. " +
   "Madde isareti, emoji veya markdown kullanma. " +
   "Eren sana kalici olarak hatirlaman gereken bir sey soylerse, " +
-  "cevabinin en sonuna [HATIRLA: kisa not] ekle. Bu etiketi baska durumda kullanma.";
+  "cevabinin en sonuna [HATIRLA: kisa not] ekle. Bu etiketi baska durumda kullanma. " +
+  "COK ONEMLI: Asla yapmadigin bir isi yaptim deme ve bilmedigin bir sonucu uydurma. Google Drive'a HENUZ BAGLI DEGILSIN: " +
+  "Drive'a dosya koyamaz, Drive'da klasor acamaz, Drive'daki dosyalari goremezsin. Kurgu, ilan, stil gibi islerin sonucunu sadece " +
+  "komutlarin dondurdugu bilgiyle bilirsin; Eren kurgunun durumunu sorarsa 'kurgu durumu' demesini soyle.";
 
 function beyinSec(metin) {
   const m = metin.toLocaleLowerCase("tr").trim();
@@ -380,7 +383,7 @@ function komut(metin) {
   if (m.includes("hatırlat") || m.includes("hatirlat")) return "hatirlat";
   if (/^(jarvis,?\s*)?not al/.test(m)) return "not";
   if (m.includes("yapılacakları temizle") || m.includes("listeyi temizle")) return "temizle";
-  if (m.includes("kurgu durumu")) return "kurgu_durumu";
+  if (m.includes("kurgu durumu") || /kurgu.*(bitti mi|nerede|ne oldu|hazır mı|hazir mi)|video.*(hazır mı|hazir mi|nerede)/.test(m)) return "kurgu_durumu";
   return null;
 }
 
