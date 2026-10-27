@@ -164,6 +164,37 @@ async function kodIstegi(env, istek) {
   return ozet + " Onaylıyor musun? 'Onayla' dersen kaydedip yayınlarım, 'iptal' dersen vazgeçerim.";
 }
 
+// ---------------- Kendini gelistirme (gunluk, Eren'in onayiyla) ----------------
+async function kendiniGelistir(env) {
+  if (!env.GITHUB_TOKEN) return "GitHub anahtarı yok.";
+  const bekleyen = await kvOku(env, "bekleyen_kod", null);
+  if (bekleyen) return "Zaten onay bekleyen bir değişiklik var: " + bekleyen.ozet + " 'Onayla' ya da 'iptal' de.";
+  const gecmis = (await kvOku(env, "gecmis", [])).slice(-30);
+  const gunluk = (await kvOku(env, "gunluk", [])).slice(-30);
+  const reddedilen = (await kvOku(env, "reddedilen_oneriler", [])).slice(-10);
+  const sistem =
+    "Sen Jarvis'sin ve kendini gelistirmek istiyorsun. Eren ile bugunku konusmalara ve yaptigin islere bak. " +
+    "Eren'in zorlandigi, yanlis anladigin, yavas kaldigin veya sik istedigi bir seyi bul. Bunu duzeltecek TEK, KUCUK ve GUVENLI bir " +
+    "kod iyilestirmesi oner (yeni buyuk ozellik degil). Daha once reddedilenleri tekrar onerme. " +
+    'SADECE JSON don: {"istek": "kod degisikligi talimati, Turkce, net", "neden": "Eren\'e 1 cumleyle neden faydali"} ' +
+    'Anlamli bir iyilestirme yoksa {"istek": ""} don.';
+  const icerik = "KONUSMALAR:\n" + gecmis.map((g) => g.role + ": " + g.content).join("\n").slice(-12000) +
+    "\n\nYAPTIKLARIN:\n" + gunluk.map((g) => g.metin).join("\n") +
+    "\n\nREDDEDILEN ONERILER:\n" + (reddedilen.join("\n") || "(yok)");
+  let oneri;
+  try {
+    oneri = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: icerik }], MODELLER(env).kod, { json: true }));
+  } catch (e) {
+    oneri = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: icerik }], MODELLER(env).sohbet, { json: true }));
+  }
+  if (!oneri.istek) return "Bugün için önereceğim bir iyileştirme bulamadım.";
+  const ozet = await kodIstegi(env, oneri.istek);
+  const b = await kvOku(env, "bekleyen_kod", null);
+  if (b) { b.gelisim = true; b.neden = oneri.neden || ""; await kvYaz(env, "bekleyen_kod", b); }
+  await gunlukEkle(env, "Kendimi geliştirmek için öneri hazırladım: " + oneri.istek.slice(0, 80));
+  return "Kendimi geliştirmek için bir önerim var. " + (oneri.neden || "") + " " + ozet;
+}
+
 async function kodOnayla(env) {
   const b = await kvOku(env, "bekleyen_kod", null);
   if (!b) return "Bekleyen bir kod değişikliği yok.";
@@ -343,6 +374,7 @@ function komut(metin) {
   if (m === "ilanlar" || m === "yeni ilanlar" || m.includes("ilan var mı")) return "ilanlar";
   if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
   if (m === "ilan ara") return "ilan_ara";
+  if (m.includes("kendini geliştir") || m.includes("kendini gelistir")) return "gelistir";
   if (m.includes("alarm")) return "alarm";
   if (m.includes("hatırlat") || m.includes("hatirlat")) return "hatirlat";
   if (/^(jarvis,?\s*)?not al/.test(m)) return "not";
@@ -535,8 +567,11 @@ async function sohbetEt(env, metin, sesB64) {
   let gecmis = await kvOku(env, "gecmis", []);
   const notlar = await kvOku(env, "notlar", []);
   const plan = await yapilacaklar(env);
+  const bekleyenKod = await kvOku(env, "bekleyen_kod", null);
   const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "") +
-    (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "");
+    (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "") +
+    (bekleyenKod ? "\n\nONAY BEKLEYEN KOD DEGISIKLIGIN: " + bekleyenKod.ozet + (bekleyenKod.neden ? " (" + bekleyenKod.neden + ")" : "") +
+      ". Uygun bir anda Eren'e bundan bahset ve 'onayla' ya da 'iptal' demesini iste." : "");
   let cevap, beyin, duydum = metin;
 
   if (sesB64 && env.GROQ_API_KEY) {
@@ -606,6 +641,21 @@ async function sohbetEt(env, metin, sesB64) {
 }
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      try {
+        const sonuc = await kendiniGelistir(env);
+        if (sonuc.startsWith("Kendimi geliştirmek")) {
+          const liste = await kvOku(env, "yapacaklar", []);
+          liste.push({ id: crypto.randomUUID().slice(0, 8), zaman: null, metin: "Gelişim önerimi dinle ve onayla/iptal de" });
+          await kvYaz(env, "yapacaklar", liste);
+        }
+      } catch (e) {
+        await gunlukEkle(env, "Gece gelişim denemesi olmadı: " + e.message);
+      }
+    })());
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
@@ -692,7 +742,12 @@ export default {
         try {
           let c;
           if (k === "onayla") c = await kodOnayla(env);
-          else if (k === "iptal") { await kvYaz(env, "bekleyen_kod", null); c = "Vazgeçtim, kod değişmedi."; }
+          else if (k === "iptal") {
+            const b = await kvOku(env, "bekleyen_kod", null);
+            if (b && b.gelisim) { const r = await kvOku(env, "reddedilen_oneriler", []); r.push(b.istek); await kvYaz(env, "reddedilen_oneriler", r.slice(-20)); }
+            await kvYaz(env, "bekleyen_kod", null); c = "Vazgeçtim, kod değişmedi.";
+          }
+          else if (k === "gelistir") c = await kendiniGelistir(env);
           else if (k === "geri_al") c = await geriAl(env);
           else if (k === "kod") c = await kodIstegi(env, metin.replace(/^kod:\s*/i, ""));
           else if (k === "kurgula") c = await kurgula(env, metin);

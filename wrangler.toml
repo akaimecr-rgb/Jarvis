@@ -11,3 +11,7 @@ id = "8c1195f4dd6744c59ba05700a260a942"
 
 [observability]
 enabled = true
+
+# Her gece 03:00 (Turkiye) kendini gelistirme onerisi
+[triggers]
+crons = ["0 0 * * *"]
