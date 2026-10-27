@@ -331,6 +331,15 @@ var kayitliKonum=null;try{kayitliKonum=JSON.parse(localStorage.getItem("jarvis_k
 if(kayitliKonum)hava(kayitliKonum[0],kayitliKonum[1]);else hava(41.01,28.97,"İSTANBUL");
 if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){var k=[p.coords.latitude.toFixed(2),p.coords.longitude.toFixed(2)];try{localStorage.setItem("jarvis_konum",JSON.stringify(k))}catch(e){}hava(k[0],k[1],"YEREL")},function(){},{timeout:8000,maximumAge:3600000});
 
+// Video oynatici ve linkler
+function linkAc(u){
+  if(u.indexOf("/video/")>=0){var v=$("oynatVideo");v.src=u;$("oynat").style.display="flex";v.play().catch(function(){});
+    $("oynatIndir").onclick=function(){if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank");gunlukYaz("","İndirme başladı, bildirim çubuğundan takip edebilirsin.")};return}
+  if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank");
+}
+$("oynatKapat").onclick=function(){var v=$("oynatVideo");v.pause();v.removeAttribute("src");v.load();$("oynat").style.display="none"};
+document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest("#gunluk a");if(a){e.preventDefault();e.stopPropagation();linkAc(a.href)}},true);
+
 // Dugmeler
 $("ayarBtn").onclick=function(){
   if(window.Android&&Android.ayarlar){Android.ayarlar();return}
@@ -366,5 +375,12 @@ if(MOD==="serbest")setTimeout(serbestMod,300);
 if(MOD==="alarm")setTimeout(alarmMod,300);
 if(MOD==="hatirlat")setTimeout(function(){setTimeout(androidBitti,25000)},300);
 </script>
+<div id="oynat" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(2,7,13,.96);flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px">
+  <video id="oynatVideo" controls playsinline style="max-width:100%;max-height:75vh;border:1px solid var(--line);border-radius:10px;background:#000"></video>
+  <div style="display:flex;gap:10px;width:100%;max-width:420px">
+    <div class="btn" id="oynatIndir" style="flex:1">İNDİR</div>
+    <div class="btn" id="oynatKapat" style="flex:1">KAPAT</div>
+  </div>
+</div>
 </body>
 </html>
