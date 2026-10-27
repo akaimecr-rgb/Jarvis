@@ -222,10 +222,10 @@ function wavaCevir(ab){
 }
 var iptalDinle=false;
 async function dinleVAD(azami){
-  var akis=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+  var akis=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
   var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=new Ctx();
   var an=ctx.createAnalyser();an.fftSize=1024;ctx.createMediaStreamSource(akis).connect(an);
-  var veri=new Uint8Array(an.fftSize),rec=new MediaRecorder(akis),par=[];
+  var veri=new Uint8Array(an.fftSize),rec=new MediaRecorder(akis,{audioBitsPerSecond:128000}),par=[];
   rec.ondataavailable=function(e){if(e.data.size)par.push(e.data)};rec.start();durum("dinliyor");$("mik").classList.add("dinliyor");
   var bas=Date.now(),konustu=false,son=0,taban=0,olc=0;
   while(!iptalDinle){
@@ -233,7 +233,7 @@ async function dinleVAD(azami){
     var t=0;for(var i=0;i<veri.length;i++){var v=(veri[i]-128)/128;t+=v*v}var rms=Math.sqrt(t/veri.length);seviye=rms;
     if(olc<8){taban+=rms/8;olc++;continue}
     if(rms>Math.max(.025,taban*2.5)){konustu=true;son=Date.now()}
-    if(konustu&&Date.now()-son>1200)break;
+    if(konustu&&Date.now()-son>1700)break;
     if(!konustu&&Date.now()-bas>azami)break;
     if(Date.now()-bas>30000)break;
   }
@@ -269,6 +269,7 @@ async function serbestMod(karsila){
     try{
       var r=await fetch("/konus",{method:"POST",headers:H(),body:JSON.stringify({ses:b64})});
       var v=await r.json();
+      if(v.sessiz){durum("hazir");continue}
       if(v.duydum)gunlukYaz("sen","Sen: "+v.duydum);
       if(v.komut){await gonder(v.duydum,true)}
       else{gunlukYaz("jarvis","Jarvis: "+v.cevap);await konus(v.cevap)}

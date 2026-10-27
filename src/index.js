@@ -438,16 +438,26 @@ async function groqDinle(env, b64) {
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "audio/wav" }), "ses.wav");
-  form.append("model", env.GROQ_DINLE_MODEL || "whisper-large-v3-turbo");
+  form.append("model", env.GROQ_DINLE_MODEL || "whisper-large-v3");
   form.append("language", "tr");
-  form.append("response_format", "json");
+  form.append("response_format", "verbose_json");
+  form.append("temperature", "0");
+  form.append("prompt", env.DINLE_IPUCU ||
+    "Jarvis, Eren. Kurgula shorts, uzun video, Remotion, Whisper, GKey, Valorant, lineup, thumbnail, Drive, Discord, Reddit, ilanlar, başvuru yaz, stil çıkar, hatırlat, not al, alarm, kod, onayla, iptal, geri al.");
   const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: "Bearer " + env.GROQ_API_KEY },
     body: form,
   });
   if (!r.ok) throw new Error("Groq dinleme " + r.status);
-  return ((await r.json()).text || "").trim();
+  const j = await r.json();
+  const seg = j.segments || [];
+  // Emin degilse bos don (konusma yok / anlasilmadi)
+  if (seg.length && seg.every((x) => x.no_speech_prob > 0.6)) return "";
+  const guven = seg.length ? seg.reduce((a, x) => a + (x.avg_logprob || 0), 0) / seg.length : 0;
+  const metin = (j.text || "").trim();
+  if (guven < -1.1 && metin.split(/\s+/).length <= 3) return "?";
+  return metin;
 }
 
 // ---------------- Sohbet (yazili veya sesli) ----------------
@@ -482,7 +492,8 @@ async function sohbetEt(env, metin, sesB64) {
     try {
       metin = await groqDinle(env, sesB64);
       duydum = metin;
-      if (!metin) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
+      if (!metin) return { duydum: "", cevap: "", sessiz: true, beyin: "sistem" };
+      if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
       if (komut(metin)) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
