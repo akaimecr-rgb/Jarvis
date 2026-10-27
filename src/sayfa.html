@@ -188,13 +188,20 @@ function tarayiciSesi(t){return new Promise(function(ok){
 var sesHatasiYazildi=false;
 function sesAl(t){return fetch("/ses",{method:"POST",headers:H(),body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok){return r.text().then(function(m){if(!sesHatasiYazildi){sesHatasiYazildi=true;gunlukYaz("","Jarvis sesi alınamadı ("+r.status+" "+m.slice(0,60)+"), telefon sesi kullanılıyor.")}throw new Error("ses")})}return r.blob()})}
 function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));var y=setInterval(function(){seviye=.04+Math.random()*.06},90);var bit=function(){clearInterval(y);seviye=0;ok()};oynatici.onended=bit;oynatici.onerror=bit;oynatici.play().catch(function(e){gunlukYaz("","Ses çalınamadı: "+e.name);bit()})})}
+var yedekSesKadar=0;
 async function konus(t){
   var benim=++sesSirasi;if(oynatici)oynatici.pause();try{speechSynthesis.cancel()}catch(e){}try{if(window.Android&&Android.sustur)Android.sustur()}catch(e){}durum("konusuyor");
+  // Google sesi yakin zamanda hata verdiyse karisik ses olmasin diye dogrudan telefon sesi
+  if(Date.now()<yedekSesKadar){await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
   var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
-  var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<60)par[par.length-1]=s+" "+c;else par.push(c)});
-  var istekler=par.map(sesAl);
-  try{for(var j=0;j<istekler.length;j++){var b=await istekler[j];if(benim!==sesSirasi)return;await cal(b)}}
-  catch(e){if(benim===sesSirasi)await tarayiciSesi(t)}
+  var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<160)par[par.length-1]=s+" "+c;else par.push(c)});
+  var istekler=par.map(function(p){return sesAl(p).catch(function(e){return null})});
+  var ilk=await istekler[0];
+  if(!ilk){yedekSesKadar=Date.now()+10*60*1000;if(benim===sesSirasi)await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
+  await cal(ilk);
+  for(var j=1;j<istekler.length;j++){if(benim!==sesSirasi)return;var b=await istekler[j];
+    if(!b){yedekSesKadar=Date.now()+10*60*1000;await tarayiciSesi(par.slice(j).join(" "));break}
+    await cal(b)}
   if(benim===sesSirasi)durum("hazir");
 }
 
