@@ -317,16 +317,57 @@ async function ilanDetay(env, metin) {
   return { metin: c, link: d.link };
 }
 
+async function basvuruUret(env, d, kok) {
+  const port = await kvOku(env, "portfolyo", []);
+  const portLink = port.length && kok ? kok + "/portfolyo" : "";
+  const sistem = "Eren icin Reddit ilanina basvuru mesaji yaziyorsun. Eren video editoru: Shorts/TikTok/Reels, Valorant ve oyun videolari " +
+    "(duzenli bir Valorant lineup Shorts musterisi var), psikoloji/egitim Shorts'u, uzun YouTube videolari; Remotion ile hizli teslim. " +
+    "Mesaj kisa (en fazla 120 kelime), samimi, profesyonel ve ilana ozel olsun; ilandaki gereksinimlere tek tek degin; abartili iddia ve uydurma referans yazma. " +
+    (portLink ? "Portfolyo linkini ekle: " + portLink + " . " : "Portfolyo linki yok; ornek calisma gondermeyi teklif et. ") +
+    "Once INGILIZCE mesaj, sonra '---', sonra Turkce cevirisi.";
+  return await sorGemini(env, sistem, [{ role: "user", content: "ILAN: " + d.baslik + "\n" + d.metin }], MODELLER(env).sohbet);
+}
+
 async function basvuruYaz(env, metin) {
   const n = parseInt((metin.match(/\d+/) || ["1"])[0]);
   const liste = await kvOku(env, "son_ilanlar", []);
   const d = liste[n - 1];
   if (!d) return "Önce 'ilanlar' de, sonra numarayla başvuru iste.";
-  const sistem = "Eren icin Reddit ilanina basvuru mesaji yaziyorsun. Eren video editoru: Shorts/TikTok/Reels, Valorant ve oyun videolari, " +
-    "psikoloji/egitim Shorts'u, uzun YouTube videolari; Remotion ile hizli teslim. Mesaj kisa, samimi, profesyonel, ilana ozel olsun; " +
-    "abartili iddia ve uydurma referans yazma. Once INGILIZCE mesaj, sonra '---', sonra Turkce cevirisi.";
-  const c = await sorGemini(env, sistem, [{ role: "user", content: "ILAN: " + d.baslik + "\n" + d.metin }], MODELLER(env).sohbet);
+  const hazir = (await kvOku(env, "basvuru_taslaklari", {}))[d.id];
+  const c = hazir || (await basvuruUret(env, d, env.__kok));
   return { cevap: c, link: d.link };
+}
+
+// ---------------- Portfolyo (herkese acik sayfa: /portfolyo) ----------------
+async function portfolyoEkle(env, a) {
+  const l = await kvOku(env, "portfolyo", []);
+  const link = String(a.link || "");
+  if (!/^https?:\/\//.test(link)) return "HATA: gecerli bir video linki gerekli (YouTube vb.).";
+  l.push({ baslik: String(a.baslik || "Video"), link, aciklama: String(a.aciklama || ""), tur: String(a.tur || "Shorts") });
+  await kvYaz(env, "portfolyo", l.slice(-30));
+  await gunlukEkle(env, "Portfolyoya eklendi: " + (a.baslik || link));
+  return { metin: "Portfolyoya eklendi. Toplam " + l.length + " is var.", link: (env.__kok || "") + "/portfolyo" };
+}
+
+async function portfolyoSayfa(env) {
+  const l = await kvOku(env, "portfolyo", []);
+  const e = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const yt = (u) => (u.match(/(?:youtu\.be\/|v=|shorts\/)([\w-]{11})/) || [])[1];
+  const kartlar = l.map((v) => {
+    const id = yt(v.link);
+    const medya = id ? `<iframe src="https://www.youtube.com/embed/${id}" loading="lazy" allowfullscreen></iframe>` : `<a class="ac" href="${e(v.link)}" target="_blank">Watch video ↗</a>`;
+    return `<div class="kart">${medya}<h3>${e(v.baslik)}</h3><span class="tur">${e(v.tur)}</span><p>${e(v.aciklama)}</p></div>`;
+  }).join("");
+  const iletisim = env.PORTFOLYO_ILETISIM || "Send me a DM on Reddit or Discord.";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Eren — Video Editor</title>
+<style>:root{color-scheme:dark}body{margin:0;background:#05080f;color:#e6f1ff;font-family:system-ui,sans-serif}header{padding:48px 20px 24px;text-align:center}
+h1{margin:0;font-size:34px;color:#67e8f9}header p{color:#9fb7c9;max-width:620px;margin:12px auto 0;line-height:1.6}.etiket{display:inline-block;margin:6px 4px;padding:6px 12px;border:1px solid #155e75;border-radius:999px;font-size:13px;color:#a5f3fc}
+.izgara{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;padding:20px;max-width:1100px;margin:0 auto}.kart{background:#0b1424;border:1px solid #12324a;border-radius:14px;overflow:hidden;padding-bottom:12px}
+.kart iframe{width:100%;aspect-ratio:9/16;max-height:460px;border:0;background:#000}.kart h3{margin:12px 14px 4px;font-size:17px}.kart p{margin:6px 14px;color:#9fb7c9;font-size:14px}.tur{margin:0 14px;font-size:12px;color:#22d3ee}
+.ac{display:block;padding:60px 0;text-align:center;color:#67e8f9}footer{text-align:center;padding:30px 20px 50px;color:#9fb7c9}</style></head><body>
+<header><h1>Eren — Video Editor</h1><p>Short-form and long-form editing for creators: YouTube Shorts, TikTok, Reels and full YouTube videos. Gaming (Valorant) specialist. Fast turnaround, clean captions, engaging pacing.</p>
+<div><span class="etiket">YouTube Shorts / TikTok / Reels</span><span class="etiket">Gaming & Valorant</span><span class="etiket">Long-form YouTube</span><span class="etiket">Captions & motion</span><span class="etiket">Thumbnails</span></div></header>
+<div class="izgara">${kartlar || '<p style="text-align:center;color:#9fb7c9">Portfolio coming soon.</p>'}</div><footer>${e(iletisim)}</footer></body></html>`;
 }
 
 async function ilanAra(env) {
@@ -1120,10 +1161,16 @@ async function saatlikIs(env) {
     const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
     const goruldu = await kvOku(env, "bildirilen_ilanlar", []);
     const yeni = liste.filter((d) => !goruldu.includes(d.id));
+    const taslaklar = await kvOku(env, "basvuru_taslaklari", {});
     for (const d of yeni.filter((x) => (x.puan || 0) >= 7).slice(0, 3)) {
-      await bildirimEkle(env, "Yeni ilan (" + d.puan + "/10)", d.ozet, d.link);
-      await gunlukEkle(env, "Yeni ilan buldum: " + (d.ozet || d.baslik).slice(0, 90));
+      let taslakVar = false;
+      if ((d.puan || 0) >= 8) {
+        try { taslaklar[d.id] = await basvuruUret(env, d, env.JARVIS_URL || "https://jarviss.akaimecr.workers.dev"); taslakVar = true; } catch (e) {}
+      }
+      await bildirimEkle(env, "Yeni ilan (" + d.puan + "/10)" + (taslakVar ? " • başvuru taslağı hazır" : ""), d.ozet, d.link);
+      await gunlukEkle(env, "Yeni ilan buldum" + (taslakVar ? " ve başvuru taslağı hazırladım" : "") + ": " + (d.ozet || d.baslik).slice(0, 90));
     }
+    await kvYaz(env, "basvuru_taslaklari", Object.fromEntries(Object.entries(taslaklar).slice(-20)));
     if (yeni.length) await kvYaz(env, "bildirilen_ilanlar", goruldu.concat(yeni.map((d) => d.id)).slice(-300));
   } catch (e) {}
   // 2) Biten kurgu
@@ -1228,6 +1275,7 @@ const ARACLAR = [
     { musteri: "musteri adi, ornek GKey", aciklama: "is, ornek 3 Valorant Shorts", ucret: "ucret sayisi", birim: "USD veya TL", teslim: "teslim zamani, ornek yarin 18:00" }],
   ["is_guncelle", "Bir isin durumunu degistirir: teslim edildi, odendi veya iptal.", { is: "is no, musteri adi ya da aciklamadan bir kelime", durum: "teslim, odendi veya iptal", ucret: "odenen tutar (opsiyonel)" }],
   ["gelir_ozeti", "Bu ayki kazanci, aylik hedefe (800 dolar) ne kadar kaldigini, bekleyen odemeleri ve devam eden isleri verir; ekranda gosterir.", {}],
+  ["portfolyo_ekle", "Eren'in herkese acik portfolyo sayfasina (basvurularda kullanilir) bir video ekler.", { baslik: "video basligi", link: "YouTube/TikTok linki", aciklama: "kisa aciklama (Ingilizce)", tur: "Shorts, Gaming, Long-form vb." }],
   ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
     { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
 ].map(([name, description, alanlar]) => ({
@@ -1282,6 +1330,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
     if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));
     if (ad === "is_ekle") return await isEkle(env, a);
+    if (ad === "portfolyo_ekle") return await portfolyoEkle(env, a);
     if (ad === "is_guncelle") return await isGuncelle(env, a);
     if (ad === "gelir_ozeti") return await gelirOzeti(env);
     return "HATA: bilinmeyen arac";
@@ -1522,6 +1571,9 @@ export default {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     env.__kok = url.origin;
+    if (request.method === "GET" && url.pathname === "/portfolyo") {
+      return new Response(await portfolyoSayfa(env), { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
     const vm = url.pathname.match(/^\/video\/(\d+)$/);
     if (request.method === "GET" && vm) {
       if (!env.GITHUB_TOKEN || url.searchParams.get("t") !== (await videoImza(env, vm[1]))) return new Response("Yetkisiz", { status: 401 });
