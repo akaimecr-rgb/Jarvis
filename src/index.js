@@ -281,6 +281,21 @@ async function ilanlar(env) {
   };
 }
 
+async function ilanDetay(env, metin) {
+  const n = parseInt((metin.match(/\d+/) || ["1"])[0]);
+  let liste = await kvOku(env, "son_ilanlar", []);
+  if (!liste.length) { await ilanlar(env); liste = await kvOku(env, "son_ilanlar", []); }
+  const d = liste[n - 1];
+  if (!d) return "Bu numarada ilan yok. Önce 'ilanlar' de.";
+  let md = "";
+  try { md = await digerDosya(env, SABLON_REPO, `musteriler/${d.slug}.md`); } catch (e) {}
+  const sistem = "Eren'e bir is ilanini sesli olarak anlatacaksin. Turkce, dogal, kisa paragraflarla anlat: ne istiyor, hangi tarzda kurgu istiyor " +
+    "(hiz, altyazi, efekt, muzik), varsa ornek videolarin analizi ne diyor, butce ve sartlar, Eren'e uygun mu ve basvururken neyi vurgulamali. " +
+    "Madde isareti ve markdown kullanma, en fazla 8 cumle.";
+  const c = await sorGemini(env, sistem, [{ role: "user", content: md || ("ILAN: " + d.baslik + "\n" + d.metin) }], MODELLER(env).sohbet);
+  return { metin: c, link: d.link };
+}
+
 async function basvuruYaz(env, metin) {
   const n = parseInt((metin.match(/\d+/) || ["1"])[0]);
   const liste = await kvOku(env, "son_ilanlar", []);
@@ -574,6 +589,7 @@ function komut(metin) {
   if (m.startsWith("stil çıkar") || m.startsWith("stil cikar")) return "stil";
   if (m === "ilanlar" || m === "yeni ilanlar" || m.includes("ilan var mı")) return "ilanlar";
   if (m.startsWith("başvuru yaz") || m.startsWith("basvuru yaz")) return "basvuru";
+  if (/ilan(ı)? (detay|anlat)|(\d+)\. ?ilan(ı)? anlat/.test(m)) return "ilan_detay";
   if (m === "ilan ara") return "ilan_ara";
   if (/^(bu )?(cevap |cevabın )?(iyiydi|güzeldi|süperdi|harikaydı|doğruydu)$/.test(m)) return "puan_iyi";
   if (/^(bu )?(cevap |cevabın )?(kötüydü|yanlıştı|berbattı|olmadı)$/.test(m)) return "puan_kotu";
@@ -755,6 +771,7 @@ const ARACLAR = [
     { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)" }],
   ["ilanlar", "Reddit'te bulunmus uygun video editor ilanlarini listeler.", {}],
   ["ilan_ara", "Hemen yeni ilan aramasi baslatir.", {}],
+  ["ilan_detay", "Bir ilanin tam olarak ne istedigini, istenen kurgu stilini ve ornek videolarin analizini anlatir.", { numara: "ilan numarasi" }],
   ["basvuru_yaz", "Listelenen bir ilana Ingilizce basvuru + Turkce ceviri yazar.", { numara: "ilan numarasi" }],
   ["hatirlat", "Belirli bir zamanda hatirlatma kurar.", { istek: "zaman ve konu, ornek: yarin 11de GKey teslimi" }],
   ["not_al", "Yapacaklar listesine not ekler.", { metin: "not" }],
@@ -796,6 +813,7 @@ async function aracCalistir(env, ad, a) {
     }
     if (ad === "ilanlar") return await ilanlar(env);
     if (ad === "ilan_ara") return await ilanAra(env);
+    if (ad === "ilan_detay") return await ilanDetay(env, "ilan " + (s(a.numara) || "1"));
     if (ad === "basvuru_yaz") { const b = await basvuruYaz(env, "başvuru yaz " + (s(a.numara) || "1")); return typeof b === "string" ? b : { metin: b.cevap, link: b.link }; }
     if (ad === "hatirlat") return await hatirlatmaEkle(env, s(a.istek));
     if (ad === "not_al") return await notAl(env, "not al: " + s(a.metin));
@@ -1149,6 +1167,10 @@ export default {
           else if (k === "not") c = await notAl(env, metin);
           else if (k === "temizle") { await kvYaz(env, "yapacaklar", []); await gunlukEkle(env, "Yapılacaklar temizlendi"); c = "Yapılacaklar listesini temizledim."; }
           else if (k === "ilan_ara") c = await ilanAra(env);
+          else if (k === "ilan_detay") {
+            const d = await ilanDetay(env, metin);
+            return Response.json(typeof d === "string" ? { cevap: d, beyin: "sistem" } : { cevap: d.metin, link: d.link, beyin: "sistem" });
+          }
           else if (k === "basvuru") {
             const b = await basvuruYaz(env, metin);
             return Response.json(typeof b === "string" ? { cevap: b, beyin: "sistem" } : { ...b, beyin: "sistem" });
