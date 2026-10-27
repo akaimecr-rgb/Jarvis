@@ -1,4 +1,8 @@
 # Eren ile Jarvis - yapilacaklar listesi
+
+## MUSTERILER (kurgu isteklerinde kullan)
+- GKey: Eren'in duzenli musterisi, oncelikli is. Valorant lineup Shorts. Kurgula aracinda musteri = "gkey", format = "shorts".
+  Stil dosyasi henuz yok: Eren 3 ornek GKey videosu verince "stil_cikar" ile ad = "gkey" olarak cikar.
 (Bu dosyayi Jarvis her konusmada okur. Eren "neler yapacaktik" diye sorarsa buradan anlat.)
 
 ## Siradaki adimlar
