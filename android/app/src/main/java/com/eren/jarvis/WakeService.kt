@@ -25,6 +25,11 @@ class WakeService : Service(), RecognitionListener {
         @Volatile var calisiyor = false
         @Volatile var durum = "kapalı"
         private var model: Model? = null
+        private var kelimeler: List<String> = emptyList()
+        // Jarvis'e benzeyen kelimeler (modelde hangisi varsa)
+        val ADAYLAR = listOf("jarvis", "travis", "jervis", "harvis", "service", "jarvas")
+        val TETIK = Regex("jar ?vis|travis|jervis|harvis|jarvas|service")
+        @Volatile var sonDuyulan = ""
     }
 
     private var ss: SpeechService? = null
@@ -62,7 +67,17 @@ class WakeService : Service(), RecognitionListener {
         if (model != null) { dinle(); return }
         durum = "model hazırlanıyor..."
         StorageService.unpack(applicationContext, "model-en-us", "model",
-            { m -> model = m; dinle() },
+            { m ->
+                model = m
+                kelimeler = try {
+                    val w = java.io.File(applicationContext.getExternalFilesDir(null), "model/graph/words.txt").let {
+                        if (it.exists()) it else java.io.File(applicationContext.filesDir, "model/graph/words.txt")
+                    }
+                    val hepsi = if (w.exists()) w.readLines().map { it.substringBefore(" ") }.toHashSet() else hashSetOf()
+                    ADAYLAR.filter { it in hepsi }
+                } catch (_: Exception) { emptyList() }
+                dinle()
+            },
             { e -> durum = "model hatası: " + e.message })
     }
 
@@ -70,11 +85,13 @@ class WakeService : Service(), RecognitionListener {
         val m = model ?: return
         if (ss != null || !calisiyor) return
         try {
-            val rec = Recognizer(m, 16000.0f, "[\"jarvis\", \"[unk]\"]")
+            val rec = if (kelimeler.isNotEmpty())
+                Recognizer(m, 16000.0f, "[" + (kelimeler + "[unk]").joinToString(",") { "\"" + it + "\"" } + "]")
+            else Recognizer(m, 16000.0f)
             ss = SpeechService(rec, 16000.0f)
             ss?.startListening(this)
             tetiklendi = false
-            durum = "dinliyor"
+            durum = "dinliyor (" + (if (kelimeler.isEmpty()) "serbest" else kelimeler.joinToString("/")) + ")"
         } catch (e: Exception) {
             ss = null
             durum = "hata: " + (e.message ?: e.javaClass.simpleName)
@@ -89,7 +106,9 @@ class WakeService : Service(), RecognitionListener {
 
     private fun kontrol(json: String?) {
         if (tetiklendi || json == null) return
-        if (json.contains("jarvis")) {
+        val metin = Regex("\"(partial|text)\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(2) ?: ""
+        if (metin.isNotBlank() && metin != "[unk]") sonDuyulan = metin
+        if (TETIK.containsMatchIn(metin)) {
             tetiklendi = true
             ana.post {
                 birak("konuşuyor")

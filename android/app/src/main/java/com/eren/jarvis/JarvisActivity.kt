@@ -7,6 +7,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.media.AudioManager
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -18,6 +21,8 @@ import android.webkit.WebViewClient
 class JarvisActivity : Activity() {
     private lateinit var web: WebView
     private var eskiSes = -1
+    private var tts: TextToSpeech? = null
+    private var ttsHazir = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +42,18 @@ class JarvisActivity : Activity() {
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread { request.grant(request.resources) }
+            }
+        }
+        tts = TextToSpeech(this) { st ->
+            if (st == TextToSpeech.SUCCESS) {
+                tts?.language = Locale("tr", "TR")
+                tts?.setSpeechRate(1.05f)
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(id: String?) {}
+                    override fun onDone(id: String?) { bitir(id) }
+                    @Deprecated("eski") override fun onError(id: String?) { bitir(id) }
+                })
+                ttsHazir = true
             }
         }
         web.addJavascriptInterface(Kopru(), "Android")
@@ -60,7 +77,17 @@ class JarvisActivity : Activity() {
         web.loadUrl(if (mod.isEmpty()) JARVIS_URL else JARVIS_URL + "?mod=" + mod)
     }
 
+    private fun bitir(id: String?) {
+        if (id == null) return
+        runOnUiThread { web.evaluateJavascript("window.__konusBitti && window.__konusBitti('" + id + "')", null) }
+    }
+
     inner class Kopru {
+        @JavascriptInterface fun konus(metin: String, id: String) {
+            if (!ttsHazir) { bitir(id); return }
+            tts?.speak(metin, TextToSpeech.QUEUE_FLUSH, null, id)
+        }
+        @JavascriptInterface fun sustur() { tts?.stop() }
         @JavascriptInterface fun bitti() { runOnUiThread { finish() } }
         @JavascriptInterface fun sifre(): String = Ayarlar.sifre(this@JarvisActivity)
         @JavascriptInterface fun ayarlar() {
@@ -75,6 +102,7 @@ class JarvisActivity : Activity() {
         if (eskiSes >= 0) {
             getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_MUSIC, eskiSes, 0)
         }
+        tts?.shutdown()
         web.destroy()
         servisKomutu(this, WakeService.DEVAM)
         super.onDestroy()

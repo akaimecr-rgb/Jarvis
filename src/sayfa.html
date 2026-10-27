@@ -179,11 +179,17 @@ $("cekirdek").setAttribute("r",(70+(aktif?seviye*60:0)).toFixed(1));requestAnima
 
 // ---------------- Ses (Jarvis konusur) ----------------
 var oynatici=null,sesSirasi=0;
-function tarayiciSesi(t){return new Promise(function(ok){var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.1;u.onend=ok;u.onerror=ok;speechSynthesis.cancel();speechSynthesis.speak(u)})}
-function sesAl(t){return fetch("/ses",{method:"POST",headers:H(),body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok)throw new Error("ses");return r.blob()})}
-function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));var y=setInterval(function(){seviye=.04+Math.random()*.06},90);var bit=function(){clearInterval(y);seviye=0;ok()};oynatici.onended=bit;oynatici.onerror=bit;oynatici.play().catch(bit)})}
+var yerelBekleyen={},yerelSayac=0;
+window.__konusBitti=function(id){var f=yerelBekleyen[id];if(f){delete yerelBekleyen[id];f()}};
+function tarayiciSesi(t){return new Promise(function(ok){
+  if(window.Android&&Android.konus){var id="k"+(++yerelSayac);yerelBekleyen[id]=ok;var y=setInterval(function(){seviye=.04+Math.random()*.06},90);var eski=ok;yerelBekleyen[id]=function(){clearInterval(y);seviye=0;eski()};try{Android.konus(t,id)}catch(e){yerelBekleyen[id]()}setTimeout(function(){if(yerelBekleyen[id])yerelBekleyen[id]()},20000);return}
+  if(!window.speechSynthesis){ok();return}
+  var u=new SpeechSynthesisUtterance(t);u.lang="tr-TR";u.rate=1.1;u.onend=ok;u.onerror=ok;speechSynthesis.cancel();speechSynthesis.speak(u);setTimeout(ok,15000)})}
+var sesHatasiYazildi=false;
+function sesAl(t){return fetch("/ses",{method:"POST",headers:H(),body:JSON.stringify({metin:t})}).then(function(r){if(!r.ok){return r.text().then(function(m){if(!sesHatasiYazildi){sesHatasiYazildi=true;gunlukYaz("","Jarvis sesi alınamadı ("+r.status+" "+m.slice(0,60)+"), telefon sesi kullanılıyor.")}throw new Error("ses")})}return r.blob()})}
+function cal(blob){return new Promise(function(ok){oynatici=new Audio(URL.createObjectURL(blob));var y=setInterval(function(){seviye=.04+Math.random()*.06},90);var bit=function(){clearInterval(y);seviye=0;ok()};oynatici.onended=bit;oynatici.onerror=bit;oynatici.play().catch(function(e){gunlukYaz("","Ses çalınamadı: "+e.name);bit()})})}
 async function konus(t){
-  var benim=++sesSirasi;if(oynatici)oynatici.pause();speechSynthesis.cancel();durum("konusuyor");
+  var benim=++sesSirasi;if(oynatici)oynatici.pause();try{speechSynthesis.cancel()}catch(e){}try{if(window.Android&&Android.sustur)Android.sustur()}catch(e){}durum("konusuyor");
   var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
   var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<60)par[par.length-1]=s+" "+c;else par.push(c)});
   var istekler=par.map(sesAl);
@@ -266,7 +272,7 @@ async function serbestMod(karsila){
   sohbetAcik=false;durum("hazir");
   if(MOD==="serbest")androidBitti();
 }
-function sohbetiKapat(){sohbetAcik=false;iptalDinle=true;sesSirasi++;if(oynatici)oynatici.pause();speechSynthesis.cancel();durum("hazir")}
+function sohbetiKapat(){sohbetAcik=false;iptalDinle=true;sesSirasi++;if(oynatici)oynatici.pause();try{speechSynthesis.cancel()}catch(e){}try{if(window.Android&&Android.sustur)Android.sustur()}catch(e){}durum("hazir")}
 $("mik").onclick=function(){if(sohbetAcik)sohbetiKapat();else serbestMod()};
 $("hud").onclick=function(){if(!sohbetAcik)serbestMod()};
 $("gonder").onclick=function(){gonder($("yazi").value,false);$("yazi").value=""};

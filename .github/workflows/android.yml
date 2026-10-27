@@ -33,10 +33,11 @@ jobs:
           cp -r /tmp/m/vosk-model-small-en-us-0.15/* android/app/src/main/assets/model-en-us/
           echo "small-en-us-0.15" > android/app/src/main/assets/model-en-us/uuid
           du -sh android/app/src/main/assets/model-en-us
+          echo "KELIME KONTROL:"; for w in jarvis travis jervis harvis service jarvas; do grep -qw "^$w" android/app/src/main/assets/model-en-us/graph/words.txt && echo "VAR $w" || echo "YOK $w"; done | tee -a /tmp/build.log
       - name: APK derle
         run: |
           set -o pipefail
-          gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tee -a /tmp/build.log
       - name: APK'yi yayinla
         uses: softprops/action-gh-release@v2
         with:

@@ -83,6 +83,7 @@ class MainActivity : Activity() {
         val pm = getSystemService(PowerManager::class.java)
         val satirlar = listOf(
             "Dinleme: " + WakeService.durum,
+            "Son duyulan: " + WakeService.sonDuyulan.ifEmpty { "-" },
             "Kilit ekranı izni: " + (if (Settings.canDrawOverlays(this)) "✓" else "✗ (2. düğme)"),
             "Pil kısıtlaması: " + (if (pm.isIgnoringBatteryOptimizations(packageName)) "kaldırıldı ✓" else "✗ (3. düğme)"),
             "Alarm: " + (if (Ayarlar.alarmAcik(this)) "her gün " + Ayarlar.alarmSaati(this) else "kapalı"),

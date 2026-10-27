@@ -358,7 +358,15 @@ function wavYap(pcm, hz) {
 }
 
 async function sesUret(env, metin) {
-  const model = env.TTS_MODEL || "gemini-2.5-flash-preview-tts";
+  const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
+  let sonHata;
+  for (const model of modeller) {
+    try { return await sesUretModel(env, metin, model); } catch (e) { sonHata = e; }
+  }
+  throw sonHata;
+}
+
+async function sesUretModel(env, metin, model) {
   const tarz = env.SES_TARZI ||
     "Sakin, derin, kendinden emin ve kibar bir yapay zeka asistani gibi, biraz hizli ve akici konus: ";
   const r = await fetch(
