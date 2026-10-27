@@ -377,6 +377,60 @@ async function alarmAyari(env, metin) {
   return (gun === 0 ? "Bugün" : gun === 1 ? "Yarın" : "Öbür gün") + " alarm çalmayacak.";
 }
 
+// ---------------- Niyet anlama: Eren ne istiyor? ----------------
+async function niyetBul(env, metin) {
+  const sonLink = await kvOku(env, "son_link", "");
+  const sistem =
+    "Eren'in mesajini oku ve hangi islemi istedigini sec. SADECE JSON don. Araclar:\n" +
+    "kurgula: bir videoyu kurgulamak/editlemek/render almak istiyor. Alanlar: format (shorts|uzun), link (video linki; mesajda yoksa bos), malzeme (klasor linki), musteri (stil adi), istek (ozel istekleri).\n" +
+    "kurgu_durumu: kurgunun/videonun durumunu, bitip bitmedigini, nerede oldugunu soruyor.\n" +
+    "stil: ornek videolardan stil cikarmak istiyor. Alanlar: format, ad, linkler (liste).\n" +
+    "ilanlar: bulunan is ilanlarini goruyor. ilan_ara: simdi ilan aramasini istiyor. basvuru: bir ilana basvuru yazilmasini istiyor (alan: numara).\n" +
+    "hatirlat: belli bir zamanda hatirlatma istiyor. not: bir seyi not almak/listeye eklemek istiyor (alan: istek = not metni). temizle: yapilacaklar listesini temizlemek.\n" +
+    "alarm: sabah alarmini acmak/kapatmak/atlamak. kod: Jarvis'in kendi kodunu/ozelligini/ekranini degistirmek (alan: istek). gelistir: Jarvis'in kendini gelistirmesi.\n" +
+    "sohbet: bunlarin hicbiri, normal konusma veya soru.\n" +
+    'Bicim: {"arac":"...","format":"shorts","link":"","malzeme":"","musteri":"","istek":"","ad":"","linkler":[],"numara":0}';
+  const mesaj = [{ role: "user", content: metin }];
+  let j = null;
+  try {
+    if (env.GROQ_API_KEY) {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "content-type": "application/json" },
+        body: JSON.stringify({
+          model: env.NIYET_MODEL || "openai/gpt-oss-120b",
+          messages: [{ role: "system", content: sistem }, ...mesaj],
+          response_format: { type: "json_object" },
+          reasoning_effort: "low",
+          max_tokens: 400,
+        }),
+      });
+      if (r.ok) j = JSON.parse((await r.json()).choices[0].message.content);
+    }
+  } catch (e) {}
+  if (!j) {
+    try { j = JSON.parse(await sorGemini(env, sistem, mesaj, MODELLER(env).sohbet, { json: true })); } catch (e) { return null; }
+  }
+  if (!j || !j.arac || j.arac === "sohbet") return null;
+  const linkler = metin.match(/https?:\/\/\S+/g) || [];
+  if (j.arac === "kurgula") {
+    const link = (j.link && j.link.startsWith("http") ? j.link : "") || linkler.find((l) => !l.includes("/folders/")) || sonLink;
+    if (!link) return { hazir: "Hangi videoyu kurgulayayım? Drive linkini yazarak gönder (paylaşım 'Bağlantıya sahip herkes' olsun)." };
+    const malzeme = j.malzeme || linkler.find((l) => l.includes("/folders/")) || "";
+    return { k: "kurgula", metin: ["kurgula", j.format === "uzun" ? "uzun" : "shorts", link, malzeme, j.musteri ? "müşteri " + j.musteri : "", j.istek || ""].join(" ") };
+  }
+  if (j.arac === "stil") {
+    const ls = j.linkler && j.linkler.length ? j.linkler : linkler;
+    return { k: "stil", metin: ["stil çıkar", j.format === "uzun" ? "uzun" : "shorts", j.ad ? "ad " + j.ad : "", ...ls].join(" ") };
+  }
+  if (j.arac === "basvuru") return { k: "basvuru", metin: "başvuru yaz " + (j.numara || 1) };
+  if (j.arac === "kod") return { k: "kod", metin: j.istek || metin };
+  if (j.arac === "not") return { k: "not", metin: "not al: " + (j.istek || metin) };
+  const gecerli = ["kurgu_durumu", "ilanlar", "ilan_ara", "hatirlat", "temizle", "alarm", "gelistir"];
+  if (gecerli.includes(j.arac)) return { k: j.arac, metin };
+  return null;
+}
+
 function komut(metin) {
   const m = metin.toLocaleLowerCase("tr").trim().replace(/[.!?]+$/, "");
   if (m === "onayla" || m === "onaylıyorum") return "onayla";
@@ -596,7 +650,7 @@ async function sohbetEt(env, metin, sesB64) {
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
       if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
-      if (komut(metin)) return { duydum: metin, komut: true };
+      if (komut(metin) || (metin.length < 600 && (await niyetBul(env, metin)))) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
     } catch (e) {
       // Groq olmazsa Gemini ile dene
@@ -622,7 +676,7 @@ async function sohbetEt(env, metin, sesB64) {
     const k = komut(duydum);
       if (UYKU.test(duydum)) return { duydum: duydum, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
     if (BITIS.test(duydum)) return { duydum, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
-    if (k) return { duydum, komut: true };
+    if (k || (await niyetBul(env, duydum))) return { duydum, komut: true };
     gecmis.push({ role: "user", content: duydum });
   } else {
     gecmis.push({ role: "user", content: metin });
@@ -750,10 +804,17 @@ export default {
         return new Response("Yetkisiz", { status: 401 });
       }
       const body = await request.json();
-      const metin = body.metin || "";
+      let metin = body.metin || "";
 
-          if (UYKU.test(metin)) return Response.json({ cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", uyku: true, beyin: "sistem" });
-  const k = komut(metin);
+      if (UYKU.test(metin)) return Response.json({ cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", uyku: true, beyin: "sistem" });
+      const linkVar = (metin.match(/https?:\/\/\S+/g) || []).find((l) => !l.includes("/folders/"));
+      if (linkVar) await kvYaz(env, "son_link", linkVar);
+      let k = komut(metin);
+      if (!k && metin.length < 600) {
+        const n = await niyetBul(env, metin);
+        if (n && n.hazir) return Response.json({ cevap: n.hazir, beyin: "sistem" });
+        if (n) { k = n.k; metin = n.metin; }
+      }
       if (k) {
         if (!env.GITHUB_TOKEN && !["alarm", "hatirlat", "not", "temizle"].includes(k)) return Response.json({ cevap: "GitHub anahtarı (GITHUB_TOKEN) eklenmemiş.", beyin: "sistem" });
         try {
