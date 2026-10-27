@@ -775,6 +775,263 @@ async function groqDinle(env, b64) {
   return metin;
 }
 
+// ================= YASAM ARACLARI (konum, hava, arastirma, deprem, yerler, plan) =================
+const VARSAYILAN_KONUM = { ad: "Manavgat", lat: 36.787, lon: 31.443 };
+
+async function konumAl(env) {
+  return (await kvOku(env, "konum", null)) || VARSAYILAN_KONUM;
+}
+
+async function konumAyarla(env, ad) {
+  const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=tr&name=" + encodeURIComponent(ad));
+  const j = await r.json();
+  const y = (j.results || [])[0];
+  if (!y) return "HATA: '" + ad + "' adinda bir yer bulamadim.";
+  const k = { ad: y.name + (y.admin1 ? ", " + y.admin1 : ""), lat: y.latitude, lon: y.longitude };
+  await kvYaz(env, "konum", k);
+  await kvYaz(env, "hava_onbellek", null);
+  await gunlukEkle(env, "Konum ayarlandı: " + k.ad);
+  return { metin: "Konum " + k.ad + " olarak ayarlandi.", ekran: { panel: "hava" } };
+}
+
+const HAVA_KOD = (k) => k === 0 ? "açık" : k <= 2 ? "az bulutlu" : k === 3 ? "bulutlu" : k <= 48 ? "sisli" : k <= 57 ? "çiseleme" : k <= 67 ? "yağmurlu" : k <= 77 ? "karlı" : k <= 82 ? "sağanak" : "fırtınalı";
+
+async function havaAl(env) {
+  const on = await kvOku(env, "hava_onbellek", null);
+  if (on && Date.now() - on.zaman < 30 * 60 * 1000) return on.veri;
+  const k = await konumAl(env);
+  const u = `https://api.open-meteo.com/v1/forecast?latitude=${k.lat}&longitude=${k.lon}&current=temperature_2m,weathercode,wind_speed_10m,is_day&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&timezone=Europe%2FIstanbul&forecast_days=3`;
+  const j = await (await fetch(u)).json();
+  const veri = {
+    yer: k.ad,
+    simdi: `${Math.round(j.current.temperature_2m)}°C, ${HAVA_KOD(j.current.weathercode)}, rüzgar ${Math.round(j.current.wind_speed_10m)} km/s`,
+    gunler: j.daily.time.map((t, i) => ({
+      tarih: t, durum: HAVA_KOD(j.daily.weathercode[i]), kod: j.daily.weathercode[i],
+      max: Math.round(j.daily.temperature_2m_max[i]), min: Math.round(j.daily.temperature_2m_min[i]),
+      yagmur: j.daily.precipitation_probability_max[i], gundogumu: (j.daily.sunrise[i] || "").slice(11), gunbatimi: (j.daily.sunset[i] || "").slice(11),
+    })),
+  };
+  await kvYaz(env, "hava_onbellek", { zaman: Date.now(), veri });
+  return veri;
+}
+
+function trSimdi() {
+  const d = new Date(Date.now() + 3 * 3600 * 1000);
+  const gun = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"][d.getUTCDay()];
+  return { tarih: d.toISOString().slice(0, 10), saat: d.toISOString().slice(11, 16), gun };
+}
+
+async function baglam(env) {
+  const z = trSimdi();
+  let h = "";
+  try { const v = await havaAl(env); h = `Hava (${v.yer}): şu an ${v.simdi}; bugün ${v.gunler[0].min}-${v.gunler[0].max}°C, yağmur ihtimali %${v.gunler[0].yagmur}, gün batımı ${v.gunler[0].gunbatimi}.`; } catch (e) {}
+  const k = await konumAl(env);
+  return `\n\nSU ANKI DURUM: ${z.gun} ${z.tarih}, saat ${z.saat} (Türkiye). Eren'in konumu: ${k.ad}. ${h}`;
+}
+
+// Gemini + Google arama ile internet arastirmasi
+async function arastir(env, soru) {
+  const model = env.ARASTIRMA_MODEL || "gemini-flash-latest";
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: soru + "\n\nGuncel internet kaynaklarina dayanarak Turkce, kisa ve net cevap ver." }] }],
+      tools: [{ google_search: {} }],
+    }),
+  });
+  if (!r.ok) throw new Error("Arastirma " + r.status);
+  const j = await r.json();
+  const c = j.candidates?.[0];
+  const metin = (c?.content?.parts || []).map((p) => p.text || "").join("").trim();
+  const kaynak = (c?.groundingMetadata?.groundingChunks || []).map((g) => g.web).filter(Boolean).slice(0, 5);
+  return { metin: metin || "Sonuc bulunamadi.", linkler: kaynak.map((w, i) => ({ ad: "KAYNAK " + (i + 1), url: w.uri })) };
+}
+
+function mesafeKm(a1, o1, a2, o2) {
+  const R = 6371, r = Math.PI / 180;
+  const x = Math.sin(((a2 - a1) * r) / 2) ** 2 + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(((o2 - o1) * r) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+async function depremler(env, a = {}) {
+  const min = parseFloat(a.min_buyukluk || "2.5") || 2.5;
+  const k = await konumAl(env);
+  let liste = [];
+  try {
+    const bitis = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 19);
+    const bas = new Date(Date.now() + 3 * 3600 * 1000 - 2 * 86400000).toISOString().slice(0, 19);
+    const r = await fetch(`https://deprem.afad.gov.tr/apiv2/event/filter?start=${bas}&end=${bitis}&minmag=${min}&orderby=timedesc&limit=30`);
+    const j = await r.json();
+    liste = j.map((e) => ({ yer: e.location, buyukluk: parseFloat(e.magnitude), zaman: e.date, derinlik: parseFloat(e.depth), lat: parseFloat(e.latitude), lon: parseFloat(e.longitude) }));
+  } catch (e) {
+    const r = await fetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minlatitude=35&maxlatitude=43&minlongitude=25&maxlongitude=45&minmagnitude=${min}&orderby=time&limit=30`);
+    const j = await r.json();
+    liste = j.features.map((f) => ({ yer: f.properties.place, buyukluk: f.properties.mag, zaman: new Date(f.properties.time + 3 * 3600 * 1000).toISOString().slice(0, 19), derinlik: f.geometry.coordinates[2], lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] }));
+  }
+  liste.forEach((d) => (d.uzaklik = Math.round(mesafeKm(k.lat, k.lon, d.lat, d.lon))));
+  liste = liste.slice(0, 15);
+  const yakin = liste.filter((d) => d.uzaklik < 150);
+  const metin = liste.length
+    ? "Son depremler: " + liste.slice(0, 5).map((d) => `${d.zaman.slice(11, 16)} ${d.yer} ${d.buyukluk.toFixed(1)} (${d.uzaklik} km uzakta)`).join("; ") +
+      (yakin.length ? `. ${k.ad}'a 150 km'den yakin ${yakin.length} deprem var.` : `. ${k.ad} cevresinde kayda deger deprem yok.`)
+    : "Son 2 gunde bu buyuklukte deprem yok.";
+  return { metin, ekran: { panel: "deprem", veri: liste } };
+}
+
+// OpenStreetMap ile yakindaki yerler ve acik olup olmadigi
+const YER_TURLERI = {
+  kafe: '["amenity"="cafe"]', restoran: '["amenity"="restaurant"]', fastfood: '["amenity"="fast_food"]', eczane: '["amenity"="pharmacy"]',
+  market: '["shop"~"supermarket|convenience"]', benzin: '["amenity"="fuel"]', hastane: '["amenity"="hospital"]', bar: '["amenity"~"bar|pub"]',
+  plaj: '["natural"="beach"]', park: '["leisure"="park"]', spor: '["leisure"~"fitness_centre|sports_centre"]', manzara: '["tourism"="viewpoint"]',
+  muze: '["tourism"="museum"]', sinema: '["amenity"="cinema"]', nargile: '["amenity"="hookah_lounge"]',
+};
+
+function acikMi(oh, tarih) {
+  if (!oh) return null;
+  const s = oh.trim();
+  if (/24\/7/.test(s)) return true;
+  const gunler = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const bugun = gunler[tarih.getUTCDay()];
+  const dk = tarih.getUTCHours() * 60 + tarih.getUTCMinutes();
+  const idx = (g) => gunler.indexOf(g);
+  for (const kural of s.split(";").map((x) => x.trim()).filter(Boolean)) {
+    const m = kural.match(/^((?:[A-Z][a-z](?:-[A-Z][a-z])?,?)+)?\s*(.*)$/);
+    if (!m) continue;
+    let uyar = !m[1];
+    if (m[1]) for (const p of m[1].split(",")) {
+      const [a, b] = p.split("-");
+      if (b ? ((idx(a) <= idx(b) && idx(bugun) >= idx(a) && idx(bugun) <= idx(b)) || (idx(a) > idx(b) && (idx(bugun) >= idx(a) || idx(bugun) <= idx(b)))) : a === bugun) uyar = true;
+    }
+    if (!uyar) continue;
+    if (/off|closed/i.test(m[2])) return false;
+    for (const ar of m[2].split(",")) {
+      const t = ar.match(/(\d\d):(\d\d)\s*-\s*(\d\d):(\d\d)/);
+      if (!t) continue;
+      const b1 = +t[1] * 60 + +t[2]; let b2 = +t[3] * 60 + +t[4];
+      if (b2 <= b1) b2 += 1440;
+      if ((dk >= b1 && dk < b2) || (dk + 1440 >= b1 && dk + 1440 < b2)) return true;
+    }
+    return false;
+  }
+  return null;
+}
+
+async function yakinYerler(env, a = {}) {
+  const k = await konumAl(env);
+  const tur = (a.tur || "kafe").toLowerCase().replace(/ı/g, "i").replace(/ş/g, "s").replace(/ç/g, "c").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ğ/g, "g");
+  const filtre = YER_TURLERI[tur] || YER_TURLERI.kafe;
+  const yaricap = Math.min(30000, (parseFloat(a.km || "6") || 6) * 1000);
+  const q = `[out:json][timeout:20];(node${filtre}(around:${yaricap},${k.lat},${k.lon});way${filtre}(around:${yaricap},${k.lat},${k.lon}););out center 60;`;
+  const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded" } });
+  if (!r.ok) throw new Error("Harita servisi " + r.status);
+  const j = await r.json();
+  const simdi = new Date(Date.now() + 3 * 3600 * 1000);
+  let yerler = (j.elements || []).map((e) => {
+    const lat = e.lat || e.center?.lat, lon = e.lon || e.center?.lon;
+    return { ad: e.tags?.name || "(isimsiz)", acik: acikMi(e.tags?.opening_hours, simdi), saatler: e.tags?.opening_hours || "", uzaklik: +mesafeKm(k.lat, k.lon, lat, lon).toFixed(1), lat, lon };
+  }).filter((y) => y.ad !== "(isimsiz)" || tur === "plaj" || tur === "manzara");
+  if (a.sadece_acik === "evet" || a.sadece_acik === true) yerler = yerler.filter((y) => y.acik !== false);
+  yerler.sort((x, y) => (y.acik === true) - (x.acik === true) || x.uzaklik - y.uzaklik);
+  yerler = yerler.slice(0, 10);
+  const metin = yerler.length
+    ? `${k.ad} yakininda ${tur}: ` + yerler.slice(0, 6).map((y) => `${y.ad} (${y.uzaklik} km, ${y.acik === true ? "su an acik" : y.acik === false ? "su an kapali" : "saati bilinmiyor"})`).join("; ")
+    : "Yakinda bu turde yer bulamadim.";
+  return { metin, ekran: { panel: "yerler", baslik: tur.toUpperCase(), veri: yerler } };
+}
+
+async function nelerYaptin(env) {
+  const g = (await kvOku(env, "gunluk", [])).filter((x) => Date.now() - x.zaman < 26 * 3600 * 1000);
+  if (!g.length) return "Son 24 saatte kayda deger bir sey yapmadim.";
+  return "Son 24 saatte yaptiklarim: " + g.map((x) => new Date(x.zaman + 3 * 3600 * 1000).toISOString().slice(11, 16) + " " + x.metin).join("; ");
+}
+
+async function gunlukPlan(env) {
+  const z = trSimdi();
+  const izinler = await kvOku(env, "izin_gunleri", []);
+  const izinli = izinler.includes(z.tarih);
+  const yap = (await kvOku(env, "yapacaklar", [])).filter((y) => !y.bitti);
+  const bugunkuler = yap.filter((y) => y.zaman && new Date(y.zaman + 3 * 3600 * 1000).toISOString().slice(0, 10) === z.tarih);
+  const zamansiz = yap.filter((y) => !y.zaman);
+  let takvim = [];
+  try { takvim = await takvimBugun(env); } catch (e) {}
+  let hava = null;
+  try { hava = await havaAl(env); } catch (e) {}
+  const satirlar = [];
+  if (!izinli) satirlar.push({ saat: "12:15", metin: "İşe hazırlan ve çık" }, { saat: "13:00", metin: "Tavuk Dünyası vardiyası (22:00'ye kadar)" }, { saat: "22:30", metin: "Eve dönüş, kurgu ve müşteri işleri" });
+  else satirlar.push({ saat: "-", metin: "Bugün izin günü: kurgu ve ilanlara ağırlık ver" });
+  bugunkuler.forEach((y) => satirlar.push({ saat: new Date(y.zaman + 3 * 3600 * 1000).toISOString().slice(11, 16), metin: y.metin }));
+  takvim.forEach((t) => satirlar.push({ saat: t.saat, metin: t.baslik + " (takvim)" }));
+  zamansiz.slice(0, 5).forEach((y) => satirlar.push({ saat: "•", metin: y.metin }));
+  satirlar.sort((a, b) => (a.saat > b.saat ? 1 : -1));
+  const metin = `Bugun ${z.gun} ${z.tarih}${izinli ? " (izin)" : ""}. ` + (hava ? `Hava ${hava.gunler[0].durum}, ${hava.gunler[0].min}-${hava.gunler[0].max} derece. ` : "") +
+    "Plan: " + satirlar.map((s) => (s.saat !== "•" && s.saat !== "-" ? s.saat + " " : "") + s.metin).join("; ") + ".";
+  return { metin, ekran: { panel: "plan", veri: satirlar } };
+}
+
+async function izinAyarla(env, gunMetni) {
+  const m = (gunMetni || "").toLocaleLowerCase("tr");
+  const gun = m.includes("bugün") || m.includes("bugun") ? 0 : m.includes("öbür") ? 2 : 1;
+  const t = bugunTR(gun);
+  const l = await kvOku(env, "izin_gunleri", []);
+  if (!l.includes(t)) l.push(t);
+  await kvYaz(env, "izin_gunleri", l.filter((x) => x >= bugunTR(0)));
+  return t + " izin gunu olarak kaydedildi.";
+}
+
+async function takvimBugun(env) {
+  if (!env.DRIVE_SCRIPT_URL) return [];
+  const b = await driveBilgi(env);
+  const z = trSimdi();
+  const bas = z.tarih + "T00:00:00+03:00", bit = z.tarih + "T23:59:59+03:00";
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&timeMin=${encodeURIComponent(bas)}&timeMax=${encodeURIComponent(bit)}`, { headers: { Authorization: "Bearer " + b.token } });
+  if (!r.ok) return [];
+  const j = await r.json();
+  return (j.items || []).map((e) => ({ baslik: e.summary || "(başlıksız)", saat: (e.start.dateTime || "").slice(11, 16) || "gün boyu" }));
+}
+
+// ---------------- Gmail ve Takvim (ayni Apps Script koprusu) ----------------
+async function mailKontrol(env, a = {}) {
+  if (!env.DRIVE_SCRIPT_URL) return "HATA: Gmail bagli degil. Eren'in Drive/Gmail koprusunu (Apps Script) kurmasi gerekiyor.";
+  const b = await driveBilgi(env);
+  const q = a.sorgu || "is:unread newer_than:2d -category:promotions -category:social";
+  const H = { Authorization: "Bearer " + b.token };
+  const l = await (await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=8&q=" + encodeURIComponent(q), { headers: H })).json();
+  if (l.error) return "HATA: Gmail izni yok (" + (l.error.message || "").slice(0, 80) + "). Kopru kodunu guncelleyip yeniden dagitmak gerekiyor.";
+  const mesajlar = [];
+  for (const m of (l.messages || []).slice(0, 8)) {
+    const d = await (await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, { headers: H })).json();
+    const h = Object.fromEntries((d.payload?.headers || []).map((x) => [x.name, x.value]));
+    mesajlar.push({ kimden: (h.From || "").replace(/<.*>/, "").trim(), konu: h.Subject || "", ozet: (d.snippet || "").slice(0, 160) });
+  }
+  if (!mesajlar.length) return "Yeni onemli mail yok.";
+  return "Mailler (Ingilizce olanlari Eren'e Turkce ozetle): " + mesajlar.map((m, i) => `${i + 1}) ${m.kimden}: ${m.konu} - ${m.ozet}`).join(" | ");
+}
+
+async function takvimEkle(env, istek) {
+  if (!env.DRIVE_SCRIPT_URL) return "HATA: Takvim bagli degil (Apps Script koprusu kurulmali).";
+  const sistem = "Turkce bir takvim istegini cozumle. Simdi: " + trSimdi().tarih + " " + trSimdi().saat +
+    ' (Turkiye). SADECE JSON: {"baslik":"","baslangic":"YYYY-MM-DDTHH:MM","sure_dk":60}';
+  const j = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: istek }], MODELLER(env).sohbet, { json: true }));
+  const b = await driveBilgi(env);
+  const bas = new Date(Date.parse(j.baslangic + ":00+03:00"));
+  const bit = new Date(bas.getTime() + (j.sure_dk || 60) * 60000);
+  const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST", headers: { Authorization: "Bearer " + b.token, "content-type": "application/json" },
+    body: JSON.stringify({ summary: j.baslik, start: { dateTime: bas.toISOString() }, end: { dateTime: bit.toISOString() } }),
+  });
+  if (!r.ok) return "HATA: Takvime eklenemedi (" + r.status + ").";
+  await gunlukEkle(env, "Takvime eklendi: " + j.baslik);
+  return `Takvime eklendi: ${j.baslik}, ${j.baslangic.replace("T", " ")}.`;
+}
+
+// Bildirim kuyrugu (telefon uygulamasi ceker)
+async function bildirimEkle(env, baslik, metin, link) {
+  const l = await kvOku(env, "bildirimler", []);
+  l.push({ id: crypto.randomUUID().slice(0, 8), zaman: Date.now(), baslik, metin, link: link || "" });
+  await kvYaz(env, "bildirimler", l.slice(-30));
+}
+
 // ---------------- Ajan: gorevi araclarla adim adim yapar ----------------
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
@@ -791,6 +1048,17 @@ const ARACLAR = [
   ["yapacaklari_temizle", "Yapacaklar listesini temizler.", {}],
   ["alarm", "Sabah alarmini acar/kapatir/atlatir.", { istek: "ornek: yarin alarm yapma, alarmi ac" }],
   ["drive", "Drive'daki Jarvis klasorlerine bakar, dosya arar veya klasor acar.", { alt: "listele, ara veya klasor_ac", klasor: "ham, ornek, malzeme veya bitti", ad: "aranacak dosya ya da acilacak klasor adi" }],
+  ["arastir", "Internette guncel arastirma yapar (Google). Haber, trend, fiyat, yontem, Valorant/video stili, her turlu guncel bilgi icin.", { soru: "arastirilacak soru" }],
+  ["depremler", "Turkiye'deki son depremleri listeler ve ekranda deprem panelini acar.", { min_buyukluk: "en kucuk buyukluk, varsayilan 2.5" }],
+  ["yakin_yerler", "Eren'in konumuna yakin yerleri ve su an acik olup olmadiklarini bulur, ekranda listeler. turler: kafe, restoran, fastfood, eczane, market, benzin, hastane, bar, plaj, park, spor, manzara, muze, sinema, nargile.",
+    { tur: "yer turu", km: "arama yaricapi km (opsiyonel)", sadece_acik: "evet ise sadece acik olanlar" }],
+  ["hava", "Eren'in konumunun hava durumunu verir ve hava panelini gosterir.", {}],
+  ["konum_ayarla", "Eren'in yasadigi/bulundugu yeri ayarlar (ornek: Manavgat).", { yer: "sehir veya ilce" }],
+  ["gunluk_plan", "Bugunun planini cikarir (vardiya, hatirlatmalar, takvim, yapilacaklar) ve ekranda gosterir.", {}],
+  ["izin_gunu", "Bir gunu izin gunu olarak kaydeder (o gun vardiya planlanmaz).", { gun: "bugun, yarin veya obur gun" }],
+  ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
+  ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
+  ["takvime_ekle", "Google Takvim'e etkinlik ekler.", { istek: "etkinlik ve zamani, ornek: cuma 15te GKey toplantisi" }],
   ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
     { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
 ].map(([name, description, alanlar]) => ({
@@ -833,7 +1101,17 @@ async function aracCalistir(env, ad, a) {
     if (ad === "yapacaklari_temizle") { await kvYaz(env, "yapacaklar", []); return "Liste temizlendi."; }
     if (ad === "alarm") return await alarmAyari(env, s(a.istek) + " alarm");
     if (ad === "drive") return await driveIslem(env, a);
-    if (ad === "kendini_gelistir") return await kodIstegi(env, s(a.istek));
+    if (ad === "kendini_gelistir") { const r = await kodIstegi(env, s(a.istek)); await gunlukEkle(env, "Kendime kod önerisi hazırladım: " + s(a.istek).slice(0, 80)); return r; }
+    if (ad === "arastir") { const r = await arastir(env, s(a.soru)); await gunlukEkle(env, "Araştırdım: " + s(a.soru).slice(0, 80)); return r; }
+    if (ad === "depremler") return await depremler(env, a);
+    if (ad === "yakin_yerler") return await yakinYerler(env, a);
+    if (ad === "hava") { const v = await havaAl(env); return { metin: `${v.yer}: su an ${v.simdi}. ` + v.gunler.map((g) => `${g.tarih}: ${g.durum} ${g.min}-${g.max}°C, yagmur %${g.yagmur}`).join("; "), ekran: { panel: "hava" } }; }
+    if (ad === "konum_ayarla") return await konumAyarla(env, s(a.yer));
+    if (ad === "gunluk_plan") return await gunlukPlan(env);
+    if (ad === "izin_gunu") return await izinAyarla(env, s(a.gun));
+    if (ad === "neler_yaptin") return await nelerYaptin(env);
+    if (ad === "mail_kontrol") return await mailKontrol(env, a);
+    if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));
     return "HATA: bilinmeyen arac";
   } catch (e) {
     return "HATA: " + e.message;
@@ -850,7 +1128,7 @@ async function ajanCalistir(env, sistem, son) {
     "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
     "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
-  let link = null, linkler = null;
+  let link = null, linkler = null, ekran = null;
   for (let adim = 0; adim < 5; adim++) {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -860,7 +1138,7 @@ async function ajanCalistir(env, sistem, son) {
     });
     if (!r.ok) throw new Error("Ajan " + r.status);
     const m = (await r.json()).choices[0].message;
-    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link, linkler };
+    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link, linkler, ekran };
     mesajlar.push({ role: "assistant", content: m.content || "", tool_calls: m.tool_calls });
     for (const c of m.tool_calls) {
       let a = {};
@@ -869,6 +1147,7 @@ async function ajanCalistir(env, sistem, son) {
       const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
       if (sonuc && sonuc.link) link = sonuc.link;
       if (sonuc && sonuc.linkler) linkler = sonuc.linkler;
+      if (sonuc && sonuc.ekran) ekran = sonuc.ekran;
       mesajlar.push({ role: "tool", tool_call_id: c.id, content: String(metin).slice(0, 3000) });
     }
   }
@@ -887,7 +1166,7 @@ async function ajanClaude(env, sistem, son) {
     "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
     "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = son.map((m) => ({ role: m.role, content: m.content }));
-  let link = null, linkler = null;
+  let link = null, linkler = null, ekran = null;
   for (let adim = 0; adim < 6; adim++) {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -898,7 +1177,7 @@ async function ajanClaude(env, sistem, son) {
     const j = await r.json();
     const kullanimlar = (j.content || []).filter((b) => b.type === "tool_use");
     const yazi = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-    if (!kullanimlar.length) return { cevap: yazi, link, linkler };
+    if (!kullanimlar.length) return { cevap: yazi, link, linkler, ekran };
     mesajlar.push({ role: "assistant", content: j.content });
     const sonuclar = [];
     for (const u of kullanimlar) {
@@ -906,6 +1185,7 @@ async function ajanClaude(env, sistem, son) {
       const metin = typeof sonuc === "string" ? sonuc : sonuc.metin;
       if (sonuc && sonuc.link) link = sonuc.link;
       if (sonuc && sonuc.linkler) linkler = sonuc.linkler;
+      if (sonuc && sonuc.ekran) ekran = sonuc.ekran;
       sonuclar.push({ type: "tool_result", tool_use_id: u.id, content: String(metin).slice(0, 3000) });
     }
     mesajlar.push({ role: "user", content: sonuclar });
@@ -937,12 +1217,14 @@ async function sohbetEt(env, metin, sesB64) {
   let gecmis = await kvOku(env, "gecmis", []);
   const notlar = await kvOku(env, "notlar", []);
   const plan = await yapilacaklar(env);
+  const anlik = await baglam(env).catch(() => "");
   const bekleyenKod = await kvOku(env, "bekleyen_kod", null);
   const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "") +
+    anlik +
     (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "") +
     (bekleyenKod ? "\n\nONAY BEKLEYEN KOD DEGISIKLIGIN: " + bekleyenKod.ozet + (bekleyenKod.neden ? " (" + bekleyenKod.neden + ")" : "") +
       ". Uygun bir anda Eren'e bundan bahset ve 'onayla' ya da 'iptal' demesini iste." : "");
-  let cevap, beyin, duydum = metin, ajanLink = null, ajanLinkler = null;
+  let cevap, beyin, duydum = metin, ajanLink = null, ajanLinkler = null, ajanEkran = null;
 
   if (sesB64 && env.GROQ_API_KEY) {
     try {
@@ -992,14 +1274,14 @@ async function sohbetEt(env, metin, sesB64) {
       if (beyin === "openrouter") cevap = await sorOpenRouter(env, sistem, son);
       else if (beyin === "claude") cevap = await sorClaude(env, sistem, son);
       else if (beyin === "claude-ajan") {
-        try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; }
+        try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran; }
         catch (e) {
           beyin = "groq";
-          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler;
+          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran;
         }
       }
       else if (beyin === "groq") {
-        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; }
+        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran; }
         catch (e) { cevap = await sorGroq(env, sistem, son); }
       }
       else cevap = await sorGemini(env, sistem, son, M.sohbet);
@@ -1026,7 +1308,7 @@ async function sohbetEt(env, metin, sesB64) {
     v.push({ z: Date.now(), eren: duydum, jarvis: cevap, kaynak: beyin === "groq" ? "gpt-oss" : beyin, puan: 0 });
     await kvYaz(env, "veri_bugun", v.slice(-300));
   }
-  return { duydum, cevap, beyin, link: ajanLink, linkler: ajanLinkler };
+  return { duydum, cevap, beyin, link: ajanLink, linkler: ajanLinkler, ekran: ajanEkran };
 }
 
 export default {
