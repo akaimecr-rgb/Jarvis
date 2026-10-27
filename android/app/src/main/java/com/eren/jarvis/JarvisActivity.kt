@@ -38,7 +38,14 @@ class JarvisActivity : Activity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = false
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, req: android.webkit.WebResourceRequest): Boolean {
+                val u = req.url
+                if (u.host == android.net.Uri.parse(JARVIS_URL).host) return false
+                try { startActivity(Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                return true
+            }
+        }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread { request.grant(request.resources) }
@@ -88,6 +95,11 @@ class JarvisActivity : Activity() {
             tts?.speak(metin, TextToSpeech.QUEUE_FLUSH, null, id)
         }
         @JavascriptInterface fun sustur() { tts?.stop() }
+        @JavascriptInterface fun ac(url: String) {
+            runOnUiThread {
+                try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+            }
+        }
         @JavascriptInterface fun bitti() { runOnUiThread { finish() } }
         @JavascriptInterface fun sifre(): String = Ayarlar.sifre(this@JarvisActivity)
         @JavascriptInterface fun ayarlar() {

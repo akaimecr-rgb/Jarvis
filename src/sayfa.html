@@ -333,7 +333,7 @@ $("ayarBtn").onclick=function(){
   if(window.Android&&Android.ayarlar){Android.ayarlar();return}
   if(confirm("Jarvis şifresini değiştirmek ister misin?")){try{localStorage.removeItem("jarvis_sifre")}catch(e){}location.reload()}
 };
-$("dosyaBtn").onclick=function(){var u=(sonDurum&&sonDurum.drive)||"https://drive.google.com/drive/my-drive";window.open(u,"_blank")};
+$("dosyaBtn").onclick=function(){var u=(sonDurum&&sonDurum.drive)||"https://drive.google.com/drive/my-drive";if(window.Android&&Android.ac){Android.ac(u)}else window.open(u,"_blank")};
 $("gunlukBtn").onclick=function(){$("app").classList.toggle("genis")};
 
 // ---------------- Sabah alarmi ----------------
