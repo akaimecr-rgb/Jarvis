@@ -230,7 +230,8 @@ async function geriAl(env) {
 
 async function kurgula(env, metin) {
   const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
-  const malzeme = linkler.find((l) => l.includes("/folders/")) || "";
+  let malzeme = linkler.find((l) => l.includes("/folders/")) || "";
+  if (malzeme.startsWith("drive:")) malzeme = "drive:" + malzeme.split(":")[1].split("/")[0];
   const video = linkler.find((l) => !l.includes("/folders/"));
   if (!video) return "Video linkini de yaz. Örnek: kurgula shorts <video linki> malzeme <klasör linki>";
   const format = /uzun/i.test(metin) ? "uzun" : "shorts";
@@ -781,7 +782,9 @@ async function aracCalistir(env, ad, a) {
       }
       link = link || sonLink;
       if (!link) return "HATA: video bulunamadi. Eren'den Drive linkini (yazarak) iste veya videoyu Drive Jarvis/ham klasorune koymasini soyle.";
-      return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, s(a.malzeme), a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
+      let malzeme = s(a.malzeme);
+      if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
+      return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link }; }
     if (ad === "stil_cikar") {
