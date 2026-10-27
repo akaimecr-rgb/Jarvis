@@ -358,15 +358,41 @@ function wavYap(pcm, hz) {
 }
 
 async function sesUret(env, metin) {
+  if (env.ELEVENLABS_API_KEY) {
+    try { return { veri: await elevenSes(env, metin), tur: "audio/mpeg" }; } catch (e) { /* Gemini'ye gec */ }
+  }
   const kapali = await kvOku(env, "tts_kapali_kadar", 0);
   if (Date.now() < kapali) throw new Error("TTS kotasi dolu");
   const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
   let sonHata;
   for (const model of modeller) {
-    try { return await sesUretModel(env, metin, model); } catch (e) { sonHata = e; }
+    try { return { veri: await sesUretModel(env, metin, model), tur: "audio/wav" }; } catch (e) { sonHata = e; }
   }
   if (String(sonHata).includes("429")) await kvYaz(env, "tts_kapali_kadar", Date.now() + 30 * 60 * 1000);
   throw sonHata;
+}
+
+async function elevenSes(env, metin) {
+  const ses = env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb"; // George: sakin, derin, Ingiliz erkek sesi
+  const kontrol = new AbortController();
+  const zaman = setTimeout(() => kontrol.abort(), 8000);
+  try {
+    const r = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + ses + "?output_format=mp3_44100_64", {
+      method: "POST",
+      signal: kontrol.signal,
+      headers: { "xi-api-key": env.ELEVENLABS_API_KEY, "content-type": "application/json", accept: "audio/mpeg" },
+      body: JSON.stringify({
+        text: metin,
+        model_id: env.ELEVENLABS_MODEL || "eleven_flash_v2_5",
+        language_code: "tr",
+        voice_settings: { stability: 0.55, similarity_boost: 0.8, speed: 1.05 },
+      }),
+    });
+    if (!r.ok) throw new Error("ElevenLabs " + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  } finally {
+    clearTimeout(zaman);
+  }
 }
 
 async function sesUretModel(env, metin, model) {
@@ -632,8 +658,8 @@ export default {
       }
       try {
         const { metin = "" } = await request.json();
-        const wav = await sesUret(env, metin.slice(0, 1500));
-        return new Response(wav, { headers: { "content-type": "audio/wav" } });
+        const ses = await sesUret(env, metin.slice(0, 1500));
+        return new Response(ses.veri, { headers: { "content-type": ses.tur } });
       } catch (e) {
         return new Response(e.message, { status: 502 });
       }

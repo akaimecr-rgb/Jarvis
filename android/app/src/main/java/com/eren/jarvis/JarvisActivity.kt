@@ -53,9 +53,24 @@ class JarvisActivity : Activity() {
                 runOnUiThread { request.grant(request.resources) }
             }
         }
-        tts = TextToSpeech(this) { st ->
-            if (st == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("tr", "TR")
+        ttsBaslat("com.google.android.tts")
+        web.addJavascriptInterface(Kopru(), "Android")
+        setContentView(web)
+        yukle(intent)
+    }
+
+    private fun ttsBaslat(motor: String?) {
+        tts = TextToSpeech(this, { st ->
+            if (st != TextToSpeech.SUCCESS) {
+                if (motor != null) runOnUiThread { tts?.shutdown(); ttsBaslat(null) }
+                return@TextToSpeech
+            }
+            val sonuc = tts?.setLanguage(Locale("tr", "TR")) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (sonuc < 0 && motor != null) { runOnUiThread { tts?.shutdown(); ttsBaslat(null) }; return@TextToSpeech }
+            if (sonuc < 0) runOnUiThread {
+                web.evaluateJavascript("gunlukYaz && gunlukYaz('','Telefonda Türkçe ses yok: Ayarlar > Metin okuma > Google > Türkçe sesi indir')", null)
+            }
+            run {
                 tts?.setSpeechRate(1.05f)
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {}
@@ -65,10 +80,7 @@ class JarvisActivity : Activity() {
                 ttsHazir = true
                 synchronized(bekleyen) { bekleyen.forEach { (m, id) -> soyle(m, id) }; bekleyen.clear() }
             }
-        }
-        web.addJavascriptInterface(Kopru(), "Android")
-        setContentView(web)
-        yukle(intent)
+        }, motor)
     }
 
     override fun onNewIntent(intent: Intent) {
