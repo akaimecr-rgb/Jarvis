@@ -264,6 +264,12 @@ async function kurguDurumu(env) {
   if (!r) return "Henüz bir kurgu çalışması yok.";
   const durum =
     r.status !== "completed" ? "hâlâ çalışıyor" : r.conclusion === "success" ? "bitti, video hazır" : "hata verdi";
+  if (r.status === "completed" && r.conclusion === "success") {
+    try {
+      const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${r.run_number}`);
+      return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup indirebilirsin.", link: rel.html_url };
+    } catch (e) {}
+  }
   return { cevap: `Son kurgu ${durum}.`, link: r.html_url };
 }
 
@@ -469,6 +475,13 @@ async function sorGroq(env, sistem, gecmis) {
   return j.choices?.[0]?.message?.content || "";
 }
 
+// Whisper'in sessizlikte uydurdugu bilinen Turkce cumleler
+const HAYALET = /altyaz[ıi]|m\.?\s?k\.?$|abone ol|izledi[gğ]iniz i[cç]in|te[sş]ekk[uü]rler\.?$|bir sonraki videoda|kanal[ıi]ma|^\W*$/i;
+function hayaletMi(metin) {
+  const t = (metin || "").trim();
+  return !t || (t.split(/\s+/).length <= 6 && HAYALET.test(t));
+}
+
 async function groqDinle(env, b64) {
   const bin = atob(b64);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -490,7 +503,7 @@ async function groqDinle(env, b64) {
   const seg = j.segments || [];
   // Emin degilse bos don (konusma yok / anlasilmadi)
   const metin = (j.text || "").trim();
-  if (!metin) return "";
+  if (hayaletMi(metin)) return "";
   // Sadece neredeyse kesin sessizlikse yok say
   if (seg.length && seg.every((x) => x.no_speech_prob > 0.9) && metin.split(/\s+/).length <= 2) return "";
   const guven = seg.length ? seg.reduce((a, x) => a + (x.avg_logprob || 0), 0) / seg.length : 0;
@@ -555,7 +568,7 @@ async function sohbetEt(env, metin, sesB64) {
     try { j = JSON.parse(ham); } catch (e) { j = { duydum: "", cevap: ham }; }
     duydum = String(j.duydum || "").trim();
     cevap = String(j.cevap || "");
-    if (!duydum) return { duydum: "", cevap: "Seni duyamadım, tekrar dene.", beyin: "sistem" };
+    if (hayaletMi(duydum)) return { duydum: "", cevap: "", sessiz: true, beyin: "sistem" };
     const k = komut(duydum);
     if (BITIS.test(duydum)) return { duydum, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
     if (k) return { duydum, komut: true };
@@ -647,7 +660,9 @@ export default {
       }
       try {
         const { ses = "" } = await request.json();
-        return Response.json({ metin: await sesiYaziyaCevir(env, ses) });
+        let metin = env.GROQ_API_KEY ? await groqDinle(env, ses).catch(() => null) : null;
+        if (metin === null) metin = await sesiYaziyaCevir(env, ses);
+        return Response.json({ metin: hayaletMi(metin) ? "" : metin });
       } catch (e) {
         return Response.json({ metin: "", hata: e.message }, { status: 502 });
       }
