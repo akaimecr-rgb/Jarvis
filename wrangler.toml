@@ -14,4 +14,4 @@ enabled = true
 
 # Her gece 03:00 (Turkiye) kendini gelistirme onerisi
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["0 0 * * *", "7 * * * *"]

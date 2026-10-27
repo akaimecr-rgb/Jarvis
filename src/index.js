@@ -195,6 +195,8 @@ async function kendiniGelistir(env) {
   const gecmis = (await kvOku(env, "gecmis", [])).slice(-30);
   const gunluk = (await kvOku(env, "gunluk", [])).slice(-30);
   const reddedilen = (await kvOku(env, "reddedilen_oneriler", [])).slice(-10);
+  let fikir = "";
+  try { fikir = (await arastir(env, "Kisisel sesli yapay zeka asistanlarina eklenen en faydali yeni ozellikler ve kullanici deneyimi iyilestirmeleri neler? (kisa liste)")).metin.slice(0, 1500); } catch (e) {}
   const sistem =
     "Sen Jarvis'sin ve kendini gelistirmek istiyorsun. Eren ile bugunku konusmalara ve yaptigin islere bak. " +
     "Eren'in zorlandigi, yanlis anladigin, yavas kaldigin veya sik istedigi bir seyi bul. Bunu duzeltecek TEK, KUCUK ve GUVENLI bir " +
@@ -203,7 +205,8 @@ async function kendiniGelistir(env) {
     'Anlamli bir iyilestirme yoksa {"istek": ""} don.';
   const icerik = "KONUSMALAR:\n" + gecmis.map((g) => g.role + ": " + g.content).join("\n").slice(-12000) +
     "\n\nYAPTIKLARIN:\n" + gunluk.map((g) => g.metin).join("\n") +
-    "\n\nREDDEDILEN ONERILER:\n" + (reddedilen.join("\n") || "(yok)");
+    "\n\nREDDEDILEN ONERILER:\n" + (reddedilen.join("\n") || "(yok)") +
+    "\n\nINTERNETTEN FIKIRLER:\n" + (fikir || "(yok)");
   let oneri;
   try {
     oneri = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: icerik }], MODELLER(env).kod, { json: true }));
@@ -340,7 +343,7 @@ async function videoLinki(env, run, kok) {
 }
 
 async function kurguDurumu(env, kok) {
-  const j = await gh(env, `/repos/${SABLON_REPO}/actions/runs?per_page=1`);
+  const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=1`);
   const r = j.workflow_runs && j.workflow_runs[0];
   if (!r) return "Henüz bir kurgu çalışması yok.";
   const durum =
@@ -1032,6 +1035,90 @@ async function bildirimEkle(env, baslik, metin, link) {
   await kvYaz(env, "bildirimler", l.slice(-30));
 }
 
+// ================= 7/24 OTONOM DONGU =================
+async function saatlikIs(env) {
+  const z = trSimdi();
+  // 1) Yeni ilanlar
+  try {
+    const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
+    const goruldu = await kvOku(env, "bildirilen_ilanlar", []);
+    const yeni = liste.filter((d) => !goruldu.includes(d.id));
+    for (const d of yeni.filter((x) => (x.puan || 0) >= 7).slice(0, 3)) {
+      await bildirimEkle(env, "Yeni ilan (" + d.puan + "/10)", d.ozet, d.link);
+      await gunlukEkle(env, "Yeni ilan buldum: " + (d.ozet || d.baslik).slice(0, 90));
+    }
+    if (yeni.length) await kvYaz(env, "bildirilen_ilanlar", goruldu.concat(yeni.map((d) => d.id)).slice(-300));
+  } catch (e) {}
+  // 2) Biten kurgu
+  try {
+    const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=1`);
+    const r = j.workflow_runs && j.workflow_runs[0];
+    const son = await kvOku(env, "son_bildirilen_kurgu", 0);
+    if (r && r.status === "completed" && r.run_number > son) {
+      await kvYaz(env, "son_bildirilen_kurgu", r.run_number);
+      const ok = r.conclusion === "success";
+      await bildirimEkle(env, ok ? "Kurgu hazır 🎬" : "Kurgu hata verdi", ok ? "Videoyu izlemek için dokun." : "Jarvis'e 'kurgu durumu' de.", "");
+      await gunlukEkle(env, ok ? "Kurgu #" + r.run_number + " bitti" : "Kurgu #" + r.run_number + " hata verdi");
+    }
+  } catch (e) {}
+  // 3) Yeni mailler
+  if (env.DRIVE_SCRIPT_URL) {
+    try {
+      const b = await driveBilgi(env);
+      const H = { Authorization: "Bearer " + b.token };
+      const l = await (await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=" + encodeURIComponent("is:unread newer_than:1d -category:promotions -category:social"), { headers: H })).json();
+      const goruldu = await kvOku(env, "bildirilen_mailler", []);
+      for (const m of (l.messages || []).filter((x) => !goruldu.includes(x.id)).slice(0, 3)) {
+        const d = await (await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`, { headers: H })).json();
+        const h = Object.fromEntries((d.payload?.headers || []).map((x) => [x.name, x.value]));
+        const kimden = (h.From || "").replace(/<.*>/, "").trim();
+        const gkey = /gkey/i.test(h.From || "") || /gkey/i.test(h.Subject || "");
+        await bildirimEkle(env, (gkey ? "GKey'den mail! " : "Yeni mail: ") + kimden, h.Subject || "", "");
+        await gunlukEkle(env, "Yeni mail geldi: " + kimden + " - " + (h.Subject || "").slice(0, 60));
+        goruldu.push(m.id);
+      }
+      await kvYaz(env, "bildirilen_mailler", goruldu.slice(-200));
+    } catch (e) {}
+  }
+  // 4) Gunde bir kez (10:00) is icin internet arastirmasi
+  if (z.saat.startsWith("10") && (await kvOku(env, "son_arastirma", "")) !== z.tarih) {
+    await kvYaz(env, "son_arastirma", z.tarih);
+    const konular = [
+      "Valorant lineup YouTube Shorts icin bu ay trend olan kurgu stilleri, altyazi ve efekt teknikleri neler?",
+      "Freelance video editorlerin Reddit ve Discord'da daha cok is bulmasi icin guncel ipuclari neler?",
+      "Remotion ile otomatik video kurgusunda yeni ozellikler veya kullanisli teknikler neler?",
+    ];
+    const konu = konular[new Date().getUTCDate() % konular.length];
+    try {
+      const r = await arastir(env, konu);
+      const notlar = await kvOku(env, "arastirma_notlari", []);
+      notlar.push({ tarih: z.tarih, konu, ozet: r.metin.slice(0, 1200) });
+      await kvYaz(env, "arastirma_notlari", notlar.slice(-15));
+      await gunlukEkle(env, "Araştırma yaptım: " + konu.slice(0, 70));
+    } catch (e) {}
+  }
+}
+
+async function sabahOzeti(env) {
+  const parcalar = [];
+  try { parcalar.push((await gunlukPlan(env)).metin); } catch (e) {}
+  parcalar.push(await nelerYaptin(env));
+  try { const n = (await kvOku(env, "arastirma_notlari", [])).slice(-1)[0]; if (n) parcalar.push("Son arastirma (" + n.konu + "): " + n.ozet.slice(0, 500)); } catch (e) {}
+  const bk = await kvOku(env, "bekleyen_kod", null);
+  if (bk) parcalar.push("Onay bekleyen kod onerin: " + bk.ozet);
+  if (env.DRIVE_SCRIPT_URL) { try { parcalar.push(await mailKontrol(env, {})); } catch (e) {} }
+  const sistem = SISTEM_TEMEL + "\n\nEren az once uyandi. Asagidaki bilgilerle ona sicak, dogal ve kisa bir sabah ozeti ver (en fazla 6-7 cumle): " +
+    "gunaydin de, bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
+    "gune dair tek bir faydali oneride bulun. Madde isareti kullanma.";
+  const mesaj = [{ role: "user", content: parcalar.join("\n") }];
+  let cevap;
+  try { cevap = env.GROQ_API_KEY ? await sorGroq(env, sistem, mesaj) : await sorGemini(env, sistem, mesaj, MODELLER(env).sohbet); }
+  catch (e) { cevap = "Günaydın Eren! " + parcalar[0]; }
+  let ekran = null;
+  try { ekran = (await gunlukPlan(env)).ekran; } catch (e) {}
+  return { cevap, ekran };
+}
+
 // ---------------- Ajan: gorevi araclarla adim adim yapar ----------------
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
@@ -1313,6 +1400,10 @@ async function sohbetEt(env, metin, sesB64) {
 
 export default {
   async scheduled(event, env, ctx) {
+    if (event.cron && event.cron !== "0 0 * * *") {
+      ctx.waitUntil(saatlikIs(env).catch((e) => gunlukEkle(env, "Saatlik iş hatası: " + e.message)));
+      return;
+    }
     ctx.waitUntil((async () => {
       try { await veriKaydet(env); } catch (e) { await gunlukEkle(env, "Veri kaydı olmadı: " + e.message); }
       try {
@@ -1351,6 +1442,12 @@ export default {
       } catch (e) {
         return new Response("Hata: " + e.message, { status: 502 });
       }
+    }
+    if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (url.pathname === "/sabah") return Response.json(await sabahOzeti(env));
+      const son = parseInt(url.searchParams.get("son") || "0");
+      return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });
     }
     if (request.method === "GET" && url.pathname === "/durum") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) {
