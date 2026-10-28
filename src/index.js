@@ -273,6 +273,27 @@ async function kurgula(env, metin) {
   return `Kurguyu başlattım (${format}${malzeme ? ", malzeme klasörüyle" : ""}). 5-10 dakika sürer. 'Kurgu durumu' diye sorabilirsin.`;
 }
 
+// Drive/ham'daki henuz kurgulanmamis videolari sirayla kurgular
+async function topluKurgula(env, a = {}) {
+  if (!env.DRIVE_SCRIPT_URL) return "HATA: Drive bagli degil.";
+  const yapilan = await kvOku(env, "kurgulanan", []);
+  const l = (await driveListe(env, "ham")).filter((f) => (f.mimeType || "").startsWith("video") && !yapilan.includes(f.id));
+  const adet = Math.max(1, Math.min(+a.adet || 5, 8));
+  const secilen = l.slice(0, adet);
+  if (!secilen.length) return "Drive/ham klasorunde kurgulanmamis yeni video yok.";
+  const format = /uzun/i.test(a.format || "") ? "uzun" : "shorts";
+  for (const f of secilen) {
+    await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/dispatches`, {
+      method: "POST",
+      body: JSON.stringify({ ref: "main", inputs: { format, video_url: `drive:${f.id}:${f.name.replace(/:/g, "")}`, malzeme_url: a.malzeme || "", talimat: String(a.istek || "").slice(0, 500), stil: (a.stil || "").toLowerCase(), plan: "" } }),
+    });
+    yapilan.push(f.id);
+  }
+  await kvYaz(env, "kurgulanan", yapilan.slice(-500));
+  await gunlukEkle(env, `Toplu kurgu: ${secilen.length} video başlatıldı` + (a.stil ? ` (${a.stil})` : ""));
+  return `${secilen.length} videoyu kurguya gönderdim: ${secilen.map((f) => f.name).join(", ")}. Hepsi aynı anda bulutta işleniyor, 10-15 dakikada biter.` + (l.length > adet ? ` Sırada ${l.length - adet} video daha var.` : "");
+}
+
 async function stilCikar(env, metin) {
   const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
   if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
@@ -1288,6 +1309,14 @@ async function saatlikIs(env) {
       } catch (e) {}
     }
   }
+  // 3a) Otomatik kurgu: Drive/ham'a yeni video dusunce kendiliginden kurgula
+  const oto = await kvOku(env, "oto_kurgu", null);
+  if (oto && oto.acik && env.DRIVE_SCRIPT_URL) {
+    try {
+      const r = await topluKurgula(env, { adet: 3, stil: oto.stil, format: oto.format });
+      if (!r.startsWith("Drive/ham") && !r.startsWith("HATA")) await bildirimEkle(env, "Otomatik kurgu başladı 🎬", r.slice(0, 140), "");
+    } catch (e) {}
+  }
   // 3c) Pazar 23:00 haftalik rapor
   if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
     await kvYaz(env, "son_haftalik", z.tarih);
@@ -1360,6 +1389,8 @@ const ARACLAR = [
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
   ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
+  ["toplu_kurgula", "Drive'daki Jarvis/ham klasorunde henuz kurgulanmamis butun videolari (en fazla 8) ayni anda kurguya yollar.", { stil: "musteri/stil adi, ornek gkey", format: "shorts veya uzun", adet: "en fazla kac video", istek: "ozel istekler (opsiyonel)" }],
+  ["oto_kurgu", "Otomatik kurgu modunu acar/kapatir: acikken Drive/ham'a dusen her yeni video saatte bir kendiliginden kurgulanir.", { acik: "true veya false", stil: "stil adi, ornek gkey", format: "shorts veya uzun" }],
   ["haftalik_rapor", "Son 7 gunun raporunu cikarir (isler, kazanc, hedef, ilanlar, Jarvis'in yaptiklari, oneriler).", {}],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
   ["takvime_ekle", "Google Takvim'e etkinlik ekler.", { istek: "etkinlik ve zamani, ornek: cuma 15te GKey toplantisi" }],
@@ -1420,6 +1451,15 @@ async function aracCalistir(env, ad, a) {
     if (ad === "izin_gunu") return await izinAyarla(env, s(a.gun));
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
+    if (ad === "toplu_kurgula") return await topluKurgula(env, a);
+    if (ad === "oto_kurgu") {
+      const acik = !/false|kapat|hayir|0/i.test(String(a.acik));
+      if (acik && env.DRIVE_SCRIPT_URL) { // acildigi anda mevcut videolari "yapildi" say, sadece yenileri kurgula
+        try { const l = await driveListe(env, "ham"); const y = await kvOku(env, "kurgulanan", []); await kvYaz(env, "kurgulanan", y.concat(l.map((f) => f.id)).slice(-500)); } catch (e) {}
+      }
+      await kvYaz(env, "oto_kurgu", { acik, stil: a.stil || "gkey", format: a.format || "shorts" });
+      return acik ? `Otomatik kurgu açık (${a.stil || "gkey"} stili). Drive/ham'a attığın her yeni video saatte bir kendiliğinden kurgulanacak.` : "Otomatik kurgu kapatıldı.";
+    }
     if (ad === "haftalik_rapor") return await haftalikRapor(env);
     if (ad === "discord_oku") return await discordOku(env, a);
     if (ad === "discord_yaz") return await discordYaz(env, a);
