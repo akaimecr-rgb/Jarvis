@@ -2352,13 +2352,23 @@ async function aracCalistir(env, ad, a) {
 }
 
 async function ajanCalistir(env, sistem, son) {
-  // Groq (hizli) -> olmazsa Cerebras (ucretsiz yedek)
+  // Gemini (Turkcesi daha iyi, ucretsiz gunluk kota) -> Groq (hizli) -> Cerebras
   const saglayicilar = [];
+  if (env.GEMINI_API_KEY && env.AJAN_BEYIN !== "groq" && Date.now() > (await kvOku(env, "gemini_ajan_kapali", 0)))
+    saglayicilar.push({ ad: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", anahtar: env.GEMINI_API_KEY, model: env.GEMINI_AJAN_MODEL || "gemini-flash-latest" });
   if (env.GROQ_API_KEY) saglayicilar.push({ url: "https://api.groq.com/openai/v1/chat/completions", anahtar: env.GROQ_API_KEY, model: env.AJAN_MODEL || env.GROQ_MODEL || "openai/gpt-oss-120b" });
   if (env.CEREBRAS_API_KEY) saglayicilar.push({ url: "https://api.cerebras.ai/v1/chat/completions", anahtar: env.CEREBRAS_API_KEY, model: env.CEREBRAS_MODEL || "gpt-oss-120b" });
   let sonHata;
   for (const sg of saglayicilar) {
-    try { return await ajanDongu(env, sistem, son, sg); } catch (e) { sonHata = e; }
+    try { const c = await ajanDongu(env, sistem, son, sg); c.beyin = sg.ad || "groq"; return c; }
+    catch (e) {
+      sonHata = e;
+      if (sg.ad === "gemini") {
+        const m = String(e.message);
+        if (/429/.test(m)) await kvYaz(env, "gemini_ajan_kapali", Date.now() + 60 * 60e3); // kota doldu: 1 saat Groq
+        else if (/40\d/.test(m)) { await kvYaz(env, "gemini_ajan_kapali", Date.now() + 6 * 3600e3); await gunlukEkle(env, "Gemini beyin hata verdi (" + m.slice(0, 80) + "), 6 saat Groq kullanıyorum"); }
+      }
+    }
   }
   throw sonHata || new Error("Ajan icin beyin yok");
 }
@@ -2380,9 +2390,9 @@ async function ajanDongu(env, sistem, son, sg) {
       method: "POST",
       headers: { Authorization: "Bearer " + sg.anahtar, "content-type": "application/json" },
       body: JSON.stringify({ model, messages: mesajlar, tools: secili, tool_choice: "auto", max_tokens: 900, temperature: 0.6,
-        ...(model.includes("gpt-oss") ? { reasoning_effort: env.AJAN_DUSUNME || "medium" } : {}) }),
+        ...(model.includes("gpt-oss") ? { reasoning_effort: env.AJAN_DUSUNME || "medium" } : sg.ad === "gemini" ? { reasoning_effort: env.GEMINI_DUSUNME || "low" } : {}) }),
     });
-    if (!r.ok) throw new Error("Ajan " + r.status);
+    if (!r.ok) throw new Error("Ajan " + r.status + " " + (await r.text().catch(() => "")).slice(0, 120));
     const m = (await r.json()).choices[0].message;
     if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link, linkler, ekran };
     mesajlar.push({ role: "assistant", content: m.content || "", tool_calls: m.tool_calls });
@@ -2525,11 +2535,11 @@ async function sohbetEt(env, metin, sesB64) {
         try { const a = await ajanClaude(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran; }
         catch (e) {
           beyin = "groq";
-          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran;
+          const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; if (a.beyin) beyin = a.beyin; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran;
         }
       }
       else if (beyin === "groq") {
-        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran; }
+        try { const a = await ajanCalistir(env, sistem, son); cevap = a.cevap; if (a.beyin) beyin = a.beyin; ajanLink = a.link; ajanLinkler = a.linkler; ajanEkran = a.ekran; }
         catch (e) { cevap = await sorGroq(env, sistem, son); }
       }
       else cevap = await sorGemini(env, sistem, son, M.sohbet);
