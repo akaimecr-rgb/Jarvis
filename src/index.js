@@ -367,7 +367,7 @@ async function parcaDurumu(env, kok) {
   let ozet = [];
   try { ozet = JSON.parse(await releaseDosyaEtiket(env, "parca-" + r.run_number, "parcalar.json")); } catch (e) {}
   return { metin: `${shortlar.length} Short hazir. ` + ozet.map((p) => `${p.no}) ${p.baslik} (${p.bas}-${p.son}. saniye)`).join("; "), link: rel.html_url,
-    linkler: shortlar.map((x, i) => ({ ad: "SHORT " + (i + 1), url: x.browser_download_url })) };
+    linkler: await Promise.all(shortlar.map(async (x, i) => ({ ad: "SHORT " + (i + 1), url: (kok || "") + "/varlik/" + x.id + "?t=" + (await videoImza(env, "varlik-" + x.id)) }))) };
 }
 async function releaseDosyaEtiket(env, etiket, ad) {
   const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/${etiket}`);
@@ -2390,6 +2390,14 @@ export default {
       const j = await tg(env, "setWebhook", { url: url.origin + "/telegram", secret_token: await tgGizli(env), allowed_updates: ["message", "edited_message"] });
       const bot = await tg(env, "getMe", {});
       return new Response(j.ok ? `Tamam! Telegram'da @${bot.result?.username} botunu ac ve Jarvis sifreni yaz.` : "Olmadi: " + JSON.stringify(j), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    const vm2 = url.pathname.match(/^\/varlik\/(\d+)$/);
+    if (request.method === "GET" && vm2) {
+      if (!env.GITHUB_TOKEN || url.searchParams.get("t") !== (await videoImza(env, "varlik-" + vm2[1]))) return new Response("Yetkisiz", { status: 401 });
+      const r = await fetch(`https://api.github.com/repos/${SABLON_REPO}/releases/assets/${vm2[1]}`, {
+        headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" }, redirect: "manual" });
+      const yer = r.headers.get("location");
+      return yer ? Response.redirect(yer, 302) : new Response(r.body, { status: r.status });
     }
     const fm = url.pathname.match(/^\/fatura\/([\w-]+)$/);
     if (request.method === "GET" && fm) {
