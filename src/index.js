@@ -2497,6 +2497,13 @@ async function yapilacaklar(env) {
 
 async function sohbetEt(env, metin, sesB64) {
   metin = metin || "";
+  // Ekran komutlari: yapay zekaya sormadan dogrudan (hizli ve her seferinde ayni)
+  const kisaM = metin.toLocaleLowerCase("tr").replace(/[.!?]/g, "").trim();
+  if (kisaM && kisaM.length < 60) {
+    const hm = kisaM.match(/^(?:jarvis,? )?(?:harita(?:y[ıi])?|haritalar(?:ı|i)?)(?: a[çc](?:ar m[ıi]s[ıi]n)?)?(?:,? (.+?))?(?: haritas[ıi])?(?: a[çc])?$/) || kisaM.match(/^(?:jarvis,? )?(.+?) haritas[ıi](?:n[ıi])? a[çc]$/);
+    if (hm) { const r = await aracCalistir(env, "harita", { yer: hm[1] && !/^(a[çc]|g[öo]ster)$/.test(hm[1]) ? hm[1] : "" }); return { duydum: metin, cevap: r.metin || String(r), beyin: "sistem", ekran: r.ekran }; }
+    if (/^(?:jarvis,? )?sistem durumu?(?:nu)?(?: g[öo]ster| nedir| ne)?$/.test(kisaM)) { const r = await saglikKontrol(env); return { duydum: metin, cevap: r.metin.slice(0, 300), beyin: "sistem", ekran: r.ekran }; }
+  }
   if (metin && metin.toLocaleLowerCase("tr").includes("sohbeti sil")) {
     await kvYaz(env, "gecmis", []);
     return { cevap: "Sohbet gecmisini sildim. Notlarim duruyor.", beyin: "sistem" };
