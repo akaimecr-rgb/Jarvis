@@ -14,6 +14,11 @@ import android.widget.Toast
 class PaylasActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((intent.type ?: "").startsWith("text/")) {
+            val metin = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+            if (metin.isNotBlank()) jarvisiAc(applicationContext, "metin&m=" + Uri.encode(metin.take(1500)))
+            finish(); return
+        }
         val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
                         else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)
         if (uri == null) { finish(); return }

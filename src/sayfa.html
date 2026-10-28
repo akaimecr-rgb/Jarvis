@@ -432,6 +432,8 @@ if(MOD==="alarm")setTimeout(alarmMod,300);
 if(MOD==="paylas")setTimeout(async function(){var ad=new URLSearchParams(location.search).get("ad")||"video";
   gunlukYaz("","📤 Drive'a yüklendi: "+ad);await konus("Videoyu Drive'a yükledim. Nasıl kurgulayayım? GKey stili mi, başka bir şey mi?");
   var son=await (async function(){return null})();serbestMod(false)},400);
+if(MOD==="metin")setTimeout(function(){var m=new URLSearchParams(location.search).get("m")||"";if(!m)return;
+  var y=document.getElementById("yazi");if(y&&document.getElementById("gonder")){y.value=(/^https?:\/\//.test(m.trim())?"Bu linke bak: ":"")+m;document.getElementById("gonder").click()}},500);
 if(MOD==="hatirlat")setTimeout(function(){setTimeout(androidBitti,25000)},300);
 </script>
 </body>
