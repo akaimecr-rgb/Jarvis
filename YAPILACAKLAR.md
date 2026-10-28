@@ -64,3 +64,9 @@
 - Para kazanmaya baslayinca Cloudflare'e ANTHROPIC_API_KEY eklemek: yonetici beyin otomatik Claude (Haiku) olur, Groq yedek kalir. Konsolda aylik harcama limiti koy.
 - Uzun vadeli hedef (isler buyuyunce): Eren'e ozel model. Jarvis birkac ay veri biriktirir (sohbetler, stil dosyalari, musteri mesajlari) -> acik bir model (Llama/Qwen/Gemma) LoRA ile egitilir -> Jarvis'e baglanir. Jarvis bu modeli "kisisel beyin" olarak kullanir, ozel isler icin API'deki diger modelleri (Claude, Gemini, Groq) yonetir. Bilgi icin ayrica bilgi bankasi (RAG) eklenir.
 - Kendini gelistiren dongu (Eren istedi): 1-2 ay konusma verisi topla -> acik Turkce model (ornek: Turkish-Llama-8B-Instruct veya Cloudflare'in destekledigi bir model) + temiz acik Turkce veri (InstrucTurca vb., lisansini kontrol et) + Eren'in Jarvis verisi ile LoRA egitimi -> Kaggle ucretsiz GPU'da ayda bir otomatik egitim (GitHub'dan tetiklenir) -> yeni model eskisinden iyiyse kullan. Kisisel model Jarvis'in kisiligi ve ilk cevabi olur; zor isler buyuk modellere gider.
+
+## 28 Ekim gece eklenenler
+- Paylaş > "Jarvis'e gönder": telefondaki video Drive/ham'a yüklenir, Jarvis kurgu için sorar (APK 11).
+- Discord: discord_oku / discord_yaz araçları, saatlik yeni mesaj bildirimi (GKey öncelikli), müşteriye günde en fazla 2 mesaj kilidi. Gerekli: DISCORD_BOT_TOKEN, DISCORD_KANALLAR (virgüllü kanal id), ops. DISCORD_BENIM_AD.
+- Haftalık rapor: Pazar 23:00 otomatik + "haftalık rapor" aracı.
+- laptop/: Windows için "Jarvis" uyandırma kelimeli program (BASLAT.bat).

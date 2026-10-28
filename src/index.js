@@ -1178,9 +1178,31 @@ async function discordYaz(env, a = {}) {
   if (!env.DISCORD_BOT_TOKEN) return "HATA: Discord bagli degil.";
   const k = a.kanal || discordKanallar(env)[0];
   if (!a.mesaj || !k) return "HATA: mesaj veya kanal yok.";
+  const sayKey = "discord_say_" + k + "_" + trSimdi().tarih;
+  const say = await kvOku(env, sayKey, 0);
+  if (say >= 2 && !a.zorla) return "DUR: Bu kanala bugun zaten 2 mesaj gitti (Eren'in kurali: musteriye gunde en fazla 1-2 mesaj). Eren israr ederse zorla:true ile gonder.";
+  await kvYaz(env, sayKey, say + 1);
   await discord(env, `/channels/${k}/messages`, { method: "POST", body: JSON.stringify({ content: a.mesaj.slice(0, 1900) }) });
   await gunlukEkle(env, "Discord'a mesaj gonderildi: " + a.mesaj.slice(0, 60));
   return "Gonderildi.";
+}
+
+async function haftalikRapor(env) {
+  const g = (await kvOku(env, "gunluk", [])).filter((x) => Date.now() - x.zaman < 7 * 864e5);
+  const isler = await kvOku(env, "isler", []);
+  const ham = [
+    (await gelirOzeti(env).catch(() => ({ metin: "" }))).metin,
+    "Bu hafta isler: " + isler.filter((i) => Date.now() - (i.zaman || 0) < 7 * 864e5).map((i) => `${i.musteri}: ${i.aciklama || ""} (${i.durum})`).join("; "),
+    "Jarvis gunlugu: " + g.map((x) => x.metin).slice(-60).join("; "),
+  ].join("\n");
+  const sistem = SISTEM_TEMEL + "\n\nEren icin kisa bir HAFTALIK RAPOR yaz (Turkce, en fazla 8 cumle): bu hafta kac video/is yapildi, ne kadar kazanildi ve aylik hedefe ne kadar kaldi, " +
+    "yeni ilanlar ve basvurular, Jarvis'in kendi yaptiklari, ve gelecek hafta icin GKey odakli 2 somut oneri. Uydurma; veride yoksa 'kayit yok' de.";
+  let r;
+  try { r = env.GROQ_API_KEY ? await sorGroq(env, sistem, [{ role: "user", content: ham }]) : await sorGemini(env, sistem, [{ role: "user", content: ham }], MODELLER(env).sohbet); }
+  catch (e) { r = "Haftalık rapor hazırlanamadı."; }
+  await kvYaz(env, "son_rapor", { tarih: trSimdi().tarih, metin: r });
+  await gunlukEkle(env, "Haftalık rapor hazırladım");
+  return r;
 }
 
 async function saatlikIs(env) {
@@ -1251,6 +1273,11 @@ async function saatlikIs(env) {
       } catch (e) {}
     }
   }
+  // 3c) Pazar 23:00 haftalik rapor
+  if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
+    await kvYaz(env, "son_haftalik", z.tarih);
+    try { const r = await haftalikRapor(env); await bildirimEkle(env, "Haftalık rapor hazır 📊", r.slice(0, 140), ""); } catch (e) {}
+  }
   // 4) Gunde bir kez (10:00) is icin internet arastirmasi
   if (z.saat.startsWith("10") && (await kvOku(env, "son_arastirma", "")) !== z.tarih) {
     await kvYaz(env, "son_arastirma", z.tarih);
@@ -1318,6 +1345,7 @@ const ARACLAR = [
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
   ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
+  ["haftalik_rapor", "Son 7 gunun raporunu cikarir (isler, kazanc, hedef, ilanlar, Jarvis'in yaptiklari, oneriler).", {}],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
   ["takvime_ekle", "Google Takvim'e etkinlik ekler.", { istek: "etkinlik ve zamani, ornek: cuma 15te GKey toplantisi" }],
   ["is_ekle", "Yeni bir musteri isini kaydeder (ucret ve teslim tarihiyle). Teslimden 2 saat once hatirlatir.",
@@ -1377,6 +1405,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "izin_gunu") return await izinAyarla(env, s(a.gun));
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
+    if (ad === "haftalik_rapor") return await haftalikRapor(env);
     if (ad === "discord_oku") return await discordOku(env, a);
     if (ad === "discord_yaz") return await discordYaz(env, a);
     if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));
