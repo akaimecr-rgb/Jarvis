@@ -949,6 +949,17 @@ async function arastir(env, soru) {
 }
 
 // Potansiyel musteri bulma: kucuk/orta YouTube kanallari + kisisel tanitim mesaji taslagi (GONDERMEZ)
+// GKey icin icerik fikri: guncel Valorant yamasi/harita havuzu -> lineup Shorts fikirleri
+async function fikirUret(env, a = {}) {
+  const r = await arastir(env, (a.konu || "Valorant") + " guncel yama notlari, rekabetci harita havuzu ve meta ajanlar neler? Bu hafta populer olan lineup/taktik videolari hangileri?");
+  const sistem = SISTEM_TEMEL + "\n\nAsagidaki guncel bilgiye gore GKey'in Valorant lineup Shorts kanali icin 5 somut video fikri yaz (Turkce). Her fikir: harita + ajan + util + neden simdi ilgi ceker + 5 kelimelik hook. " +
+    "Sonra GKey'e Discord'dan atilabilecek kisa Ingilizce bir oneri mesaji ve Turkce cevirisi ekle. Uydurma; bilgide olmayan yama detayini yazma.";
+  const c = await sorGemini(env, sistem, [{ role: "user", content: r.metin }], MODELLER(env).sohbet);
+  await kvYaz(env, "son_fikirler", { tarih: trSimdi().tarih, metin: c.slice(0, 3000) });
+  await gunlukEkle(env, "GKey için video fikirleri hazırladım");
+  return { metin: c, linkler: r.linkler };
+}
+
 async function musteriBul(env, a = {}) {
   const nis = a.nis || "Valorant / FPS oyun";
   const r = await arastir(env, `Duzenli YouTube Shorts veya video yukleyen, 5 bin ile 200 bin abone arasi, ${nis} alaninda aktif 6 YouTube kanali bul. ` +
@@ -1354,6 +1365,14 @@ async function saatlikIs(env) {
       if (!r.startsWith("Drive/ham") && !r.startsWith("HATA")) await bildirimEkle(env, "Otomatik kurgu başladı 🎬", r.slice(0, 140), "");
     } catch (e) {}
   }
+  // 3d) Odeme takibi: teslim edilmis ama 3 gundur odenmemis isler (gunde bir kez, 12:00)
+  if (z.saat.startsWith("12") && (await kvOku(env, "son_odeme_kontrol", "")) !== z.tarih) {
+    await kvYaz(env, "son_odeme_kontrol", z.tarih);
+    try {
+      const geciken = (await kvOku(env, "isler", [])).filter((i) => i.durum === "teslim" && !i.odendi && Date.now() - (i.teslimEdildi || i.eklendi || 0) > 3 * 864e5);
+      if (geciken.length) await bildirimEkle(env, "Ödeme bekleyen " + geciken.length + " iş var 💸", geciken.map((i) => i.musteri + ": " + i.aciklama).join(", ").slice(0, 140) + ". Jarvis'ten nazik hatırlatma mesajı isteyebilirsin.", "");
+    } catch (e) {}
+  }
   // 3c) Pazar 23:00 haftalik rapor
   if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
     await kvYaz(env, "son_haftalik", z.tarih);
@@ -1429,6 +1448,7 @@ const ARACLAR = [
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
   ["toplu_kurgula", "Drive'daki Jarvis/ham klasorunde henuz kurgulanmamis butun videolari (en fazla 8) ayni anda kurguya yollar.", { stil: "musteri/stil adi, ornek gkey", format: "shorts veya uzun", adet: "en fazla kac video", istek: "ozel istekler (opsiyonel)" }],
   ["oto_kurgu", "Otomatik kurgu modunu acar/kapatir: acikken Drive/ham'a dusen her yeni video saatte bir kendiliginden kurgulanir.", { acik: "true veya false", stil: "stil adi, ornek gkey", format: "shorts veya uzun" }],
+  ["fikir_uret", "Guncel Valorant yamasi ve metasina gore GKey icin lineup Shorts video fikirleri + GKey'e atilacak oneri mesaji (EN+TR) hazirlar.", { konu: "oyun/konu (opsiyonel, varsayilan Valorant)" }],
   ["musteri_bul", "Internetten Eren'e uygun potansiyel musteri YouTube kanallari bulur ve her birine ozel Ingilizce+Turkce tanitim mesaji taslagi yazar (gondermez).", { nis: "alan, ornek 'Valorant', 'CS2', 'psikoloji' (opsiyonel)" }],
   ["haftalik_rapor", "Son 7 gunun raporunu cikarir (isler, kazanc, hedef, ilanlar, Jarvis'in yaptiklari, oneriler).", {}],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
@@ -1500,6 +1520,7 @@ async function aracCalistir(env, ad, a) {
       await kvYaz(env, "oto_kurgu", { acik, stil: a.stil || "gkey", format: a.format || "shorts" });
       return acik ? `Otomatik kurgu açık (${a.stil || "gkey"} stili). Drive/ham'a attığın her yeni video saatte bir kendiliğinden kurgulanacak.` : "Otomatik kurgu kapatıldı.";
     }
+    if (ad === "fikir_uret") return await fikirUret(env, a);
     if (ad === "musteri_bul") return await musteriBul(env, a);
     if (ad === "haftalik_rapor") return await haftalikRapor(env);
     if (ad === "discord_oku") return await discordOku(env, a);
