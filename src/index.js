@@ -402,7 +402,10 @@ async function kurguDurumu(env, kok) {
         const did = (kayit.match(/DRIVE_ID: (\S+)/) || [])[1];
         if (did) return { cevap: "Son kurgu bitti. Video Drive'da Jarvis/bitti klasöründe.", link: "https://drive.google.com/file/d/" + did + "/view" };
       } catch (e) {}
-      return { cevap: "Son kurgu bitti, video hazır. 'Aç'a dokunup izleyebilir ya da indirebilirsin.", link: kok ? await videoLinki(env, r.run_number, kok) : rel.html_url };
+      const kapakVar = (rel.assets || []).some((a) => a.name.endsWith(".png"));
+      const vl = kok ? await videoLinki(env, r.run_number, kok) : rel.html_url;
+      return { cevap: "Son kurgu bitti, video hazır" + (kapakVar ? ", kapağını (thumbnail) da hazırladım" : "") + ". 'Aç'a dokunup izleyebilir ya da indirebilirsin.", link: vl,
+        linkler: kapakVar && kok ? [{ ad: "Video", url: vl }, { ad: "Kapak", url: vl + "&kapak=1" }] : undefined };
     } catch (e) {}
   }
   if (r.status === "completed" && r.conclusion !== "success") {
@@ -1379,7 +1382,7 @@ async function aracCalistir(env, ad, a) {
       if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
-    if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link }; }
+    if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
     if (ad === "stil_cikar") {
       let ls = s(a.linkler).split(/\s+/).filter(Boolean);
       if (!ls.length && env.DRIVE_SCRIPT_URL) ls = (await driveListe(env, "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 4).map((f) => "drive:" + f.id);
@@ -1678,7 +1681,8 @@ export default {
       if (!env.GITHUB_TOKEN || url.searchParams.get("t") !== (await videoImza(env, vm[1]))) return new Response("Yetkisiz", { status: 401 });
       try {
         const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${vm[1]}`);
-        const asset = (rel.assets || []).find((a) => a.name.endsWith(".mp4"));
+        const kapakMi = url.searchParams.get("kapak") === "1";
+        const asset = (rel.assets || []).find((a) => a.name.endsWith(kapakMi ? ".png" : ".mp4"));
         if (!asset) return new Response("Video bulunamadi", { status: 404 });
         const r = await fetch(asset.url, {
           headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" },
@@ -1686,7 +1690,7 @@ export default {
         });
         const yer = r.headers.get("location");
         if (yer) return Response.redirect(yer, 302);
-        return new Response(r.body, { headers: { "content-type": "video/mp4" } });
+        return new Response(r.body, { headers: { "content-type": kapakMi ? "image/png" : "video/mp4" } });
       } catch (e) {
         return new Response("Hata: " + e.message, { status: 502 });
       }
