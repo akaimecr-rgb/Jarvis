@@ -87,3 +87,12 @@
 4. GEMINI_API_KEY GitHub remotion-sablonlar secret'ında olsun.
 5. Discord: DISCORD_BOT_TOKEN, DISCORD_KANALLAR (Cloudflare).
 6. İsteğe bağlı: AYLIK_HEDEF, PORTFOLYO_ILETISIM. Sonra ANTHROPIC_API_KEY.
+
+## 28 Ekim öğleden sonra eklenenler
+- Ses: ElevenLabs/Gemini kotası dolunca kilit + ücretsiz Google çeviri sesi yedeği; kısa cümleler (alarm) 30 gün önbellekte.
+- APK 13: uyku modu uygulamayı açınca biter, en fazla 10 saat sürer.
+- sistem_durumu: tüm servisleri test eder, ElevenLabs kalan kotası; 6 saatte bir bozulma bildirimi.
+- Mesai modu (13-22): önemsiz bildirimler bekler, 22:00'de özet; mesaide kısa cevap.
+- revize: biten kurguyu isteğe göre değiştirip yeniden render (müşteri revizyonları).
+- Portfolyo: "son kurguyu portfolyoya ekle".
+- Sabah özetinde "Günün İngilizcesi".
