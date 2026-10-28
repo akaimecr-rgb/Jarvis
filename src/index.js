@@ -409,6 +409,21 @@ async function videoLinki(env, run, kok) {
   return kok + "/video/" + run + "?t=" + (await videoImza(env, run));
 }
 
+async function kurguListesi(env, kok) {
+  const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=6`);
+  const rapor = await kvOku(env, "son_rapor_kurgu", null);
+  const veri = [];
+  for (const r of j.workflow_runs || []) {
+    const durum = r.status !== "completed" ? "işleniyor" : r.conclusion === "success" ? "hazır" : "hata";
+    const v = { run: r.run_number, ad: (r.display_title || "").replace(/^Kurgu Render$/, "video"), durum };
+    if (durum === "hazır" && kok) { v.video = await videoLinki(env, r.run_number, kok); v.kapak = v.video + "&kapak=1"; }
+    if (rapor && rapor.run === r.run_number) v.puan = rapor.puan;
+    veri.push(v);
+  }
+  const ozet = veri.length ? veri.map((v) => `#${v.run} ${v.durum}`).join(", ") : "Hic kurgu yok.";
+  return { metin: "Son kurgular: " + ozet, ekran: { panel: "kurgular", veri } };
+}
+
 async function kurguDurumu(env, kok) {
   const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=1`);
   const r = j.workflow_runs && j.workflow_runs[0];
@@ -1366,6 +1381,7 @@ async function sabahOzeti(env) {
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
+  ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
   ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Link verilmezse Drive Jarvis/ornek klasorunu kullanir.",
     { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)" }],
@@ -1425,6 +1441,7 @@ async function aracCalistir(env, ad, a) {
       if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
+    if (ad === "kurgular") return await kurguListesi(env, env.__kok);
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
     if (ad === "stil_cikar") {
       let ls = s(a.linkler).split(/\s+/).filter(Boolean);
