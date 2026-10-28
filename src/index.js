@@ -395,16 +395,28 @@ async function kurguDurumu(env, kok) {
   const durum =
     r.status !== "completed" ? "hâlâ çalışıyor" : r.conclusion === "success" ? "bitti, video hazır" : "hata verdi";
   if (r.status === "completed" && r.conclusion === "success") {
+    let raporMetin = "";
+    try {
+      const kayit0 = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/render.log?ref=render-log`)).content);
+      const rm = kayit0.match(/RAPOR_JSON: (\{.*\})/);
+      if (rm) {
+        const rp = JSON.parse(rm[1]);
+        await kvYaz(env, "son_rapor_kurgu", { run: r.run_number, ...rp });
+        raporMetin = ` Kalite puanı ${rp.puan}/10.` + ((rp.sorunlar || []).length ? " Dikkat: " + rp.sorunlar.slice(0, 3).join("; ") + "." : "") +
+          (rp.baslik ? ` Başlık önerim: "${rp.baslik}".` : "") +
+          (rp.teslim_mesaji_en ? ` Müşteriye teslim mesajı taslağı: "${rp.teslim_mesaji_en}" (Türkçesi: ${rp.teslim_mesaji_tr || "-"}).` : "");
+      }
+    } catch (e) {}
     try {
       const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${r.run_number}`);
       try {
         const kayit = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/render.log?ref=render-log`)).content);
         const did = (kayit.match(/DRIVE_ID: (\S+)/) || [])[1];
-        if (did) return { cevap: "Son kurgu bitti. Video Drive'da Jarvis/bitti klasöründe.", link: "https://drive.google.com/file/d/" + did + "/view" };
+        if (did) return { cevap: "Son kurgu bitti. Video Drive'da Jarvis/bitti klasöründe." + raporMetin, link: "https://drive.google.com/file/d/" + did + "/view" };
       } catch (e) {}
       const kapakVar = (rel.assets || []).some((a) => a.name.endsWith(".png"));
       const vl = kok ? await videoLinki(env, r.run_number, kok) : rel.html_url;
-      return { cevap: "Son kurgu bitti, video hazır" + (kapakVar ? ", kapağını (thumbnail) da hazırladım" : "") + ". 'Aç'a dokunup izleyebilir ya da indirebilirsin.", link: vl,
+      return { cevap: "Son kurgu bitti, video hazır" + (kapakVar ? ", kapağını (thumbnail) da hazırladım" : "") + ". 'Aç'a dokunup izleyebilir ya da indirebilirsin." + raporMetin, link: vl,
         linkler: kapakVar && kok ? [{ ad: "Video", url: vl }, { ad: "Kapak", url: vl + "&kapak=1" }] : undefined };
     } catch (e) {}
   }
@@ -1325,7 +1337,7 @@ async function sabahOzeti(env) {
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
-  ["kurgu_durumu", "Son kurgunun durumunu ve video linkini verir.", {}],
+  ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
   ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Link verilmezse Drive Jarvis/ornek klasorunu kullanir.",
     { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)" }],
   ["ilanlar", "Reddit'te bulunmus uygun video editor ilanlarini listeler.", {}],
