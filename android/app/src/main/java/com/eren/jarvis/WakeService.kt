@@ -109,8 +109,9 @@ class WakeService : Service(), RecognitionListener {
                         if (it.exists()) it else java.io.File(applicationContext.filesDir, "model/graph/words.txt")
                     }
                     val hepsi = if (w.exists()) w.readLines().map { it.substringBefore(" ") }.toHashSet() else hashSetOf()
-                    ADAYLAR.filter { it in hepsi }
-                } catch (_: Exception) { emptyList() }
+                    // Sozluk okunamazsa da aday listesini kullan (serbest dinleme "huh" gibi seyler duyuyordu)
+                    if (hepsi.isEmpty()) ADAYLAR else ADAYLAR.filter { it in hepsi }.ifEmpty { ADAYLAR }
+                } catch (_: Exception) { ADAYLAR }
                 dinle()
             },
             { e -> durum = "model hatası: " + e.message })
@@ -120,9 +121,9 @@ class WakeService : Service(), RecognitionListener {
         val m = model ?: return
         if (ss != null || !calisiyor) return
         try {
-            val rec = if (kelimeler.isNotEmpty())
-                Recognizer(m, 16000.0f, "[" + (kelimeler + "[unk]").joinToString(",") { "\"" + it + "\"" } + "]")
-            else Recognizer(m, 16000.0f)
+            val rec = try {
+                Recognizer(m, 16000.0f, "[" + (kelimeler.ifEmpty { ADAYLAR } + "[unk]").joinToString(",") { "\"" + it + "\"" } + "]")
+            } catch (_: Exception) { Recognizer(m, 16000.0f) }
             rec.setWords(true)
             ss = SpeechService(rec, 16000.0f)
             ss?.startListening(this)
