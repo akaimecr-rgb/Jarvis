@@ -1916,6 +1916,48 @@ async function musteriRaporu(env, a = {}) {
   return `Musteriye haftalik rapor taslagi (Eren 'gonder' demeden gonderme). EN: "Hey! Quick weekly update:\n${liste}\nLet me know if you want any changes or have new videos for next week!" | TR: "Selam! Haftalik kisa ozet:\n${tr}\nDegisiklik istersen ya da gelecek hafta icin yeni video varsa haber ver!"`;
 }
 
+// --- YouTube'da video arama (API anahtari varsa API, yoksa arama sayfasi) ---
+async function youtubeAra(env, a = {}) {
+  const q = String(a.sorgu || "").trim();
+  if (!q) return "HATA: ne arayayim?";
+  const adet = Math.min(+a.adet || 5, 8);
+  let sonuc = [];
+  if (env.YOUTUBE_API_KEY) {
+    try {
+      const j = await (await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${adet}&q=${encodeURIComponent(q)}${/short/i.test(a.tur || "") ? "&videoDuration=short" : ""}&key=${env.YOUTUBE_API_KEY}`)).json();
+      sonuc = (j.items || []).map((x) => ({ id: x.id.videoId, baslik: x.snippet.title, kanal: x.snippet.channelTitle }));
+    } catch (e) {}
+  }
+  if (!sonuc.length) {
+    const h = await (await fetch("https://www.youtube.com/results?hl=tr&gl=TR&search_query=" + encodeURIComponent(q + (/short/i.test(a.tur || "") ? " #shorts" : "")), { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130 Safari/537.36", "Accept-Language": "tr-TR,tr" } })).text();
+    const goruldu = new Set();
+    for (const m of h.matchAll(/"videoRenderer":\{"videoId":"([\w-]{11})".*?"title":\{"runs":\[\{"text":"(.*?)"\}.*?"ownerText":\{"runs":\[\{"text":"(.*?)"/g)) {
+      if (goruldu.has(m[1])) continue; goruldu.add(m[1]);
+      sonuc.push({ id: m[1], baslik: JSON.parse('"' + m[2] + '"'), kanal: JSON.parse('"' + m[3] + '"') });
+      if (sonuc.length >= adet) break;
+    }
+    if (!sonuc.length) for (const m of h.matchAll(/\/(?:watch\?v=|shorts\/)([\w-]{11})/g)) { if (!goruldu.has(m[1])) { goruldu.add(m[1]); sonuc.push({ id: m[1], baslik: "", kanal: "" }); } if (sonuc.length >= adet) break; }
+  }
+  if (!sonuc.length) return "YouTube'da sonuc bulamadim.";
+  await kvYaz(env, "son_youtube", sonuc);
+  return {
+    metin: `YouTube sonuclari ("${q}"): ` + sonuc.map((x, i) => `${i + 1}) ${x.baslik || "video"}${x.kanal ? " - " + x.kanal : ""} https://youtu.be/${x.id}`).join(" | ") +
+      ". Stil icin kullanilacaksa stil_cikar aracina bu linkleri ver; telefonda acmak icin telefonda_ac.",
+    linkler: sonuc.map((x, i) => ({ ad: "VİDEO " + (i + 1), url: "https://youtu.be/" + x.id })),
+  };
+}
+
+// --- Laptop komut kuyrugu (laptop programi 5 sn'de bir sorar) ---
+async function laptopKomut(env, a = {}) {
+  const tur = String(a.tur || "ac");
+  const l = await kvOku(env, "laptop_komutlar", []);
+  l.push({ id: crypto.randomUUID().slice(0, 8), tur, deger: String(a.deger || ""), zaman: Date.now() });
+  await kvYaz(env, "laptop_komutlar", l.slice(-10));
+  const son = await kvOku(env, "laptop_son_gorulme", 0);
+  const acik = Date.now() - son < 6 * 60e3;
+  return (acik ? "Laptopa gonderdim: " : "Komutu siraya koydum ama laptop programi su an kapali gorunuyor (acilinca yapacak): ") + `${tur} ${a.deger || ""}`;
+}
+
 // --- Saatlik kontroller (yeni ozellikler) ---
 async function yeniSaatlik(env) {
   const z = trSimdi();
@@ -2001,6 +2043,9 @@ const ARAC_GRUPLARI = [
   [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price|fatura|invoice/i, ["musteri_kart", "teklif_hesapla", "fatura"]],
   [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
   [/hedef|hafta/i, ["haftalik_hedef", "musteri_raporu"]],
+  [/youtube|video bul|videosu|kanalı|kanali|ara\b|bul\b|stil/i, ["youtube_ara", "stil_cikar", "telefonda_ac"]],
+  [/aç\b|ac\b|açar|acar|telefonda|telefondan|uygulama|git\b|gir\b/i, ["telefonda_ac", "youtube_ara", "laptop_komut"]],
+  [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
   [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik"]],
   [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
   [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
@@ -2030,6 +2075,9 @@ const ARACLAR = [
   ["kanal_istatistik", "Bir YouTube kanalinin (varsayilan GKey) abone/izlenme istatistigini ve son videolarin izlenmelerini getirir, son bakistan beri farki soyler.", { kanal: "@handle ya da kanal linki (opsiyonel)" }],
   ["musteri_raporu", "Musteriye bu haftaki isleri anlatan kisa Ingilizce + Turkce rapor mesaji taslagi hazirlar (gondermez).", { musteri: "musteri adi (varsayilan GKey)" }],
   ["mola", "Mesai disinda su/goz/esneme mola hatirlaticisini acar ya da kapatir.", { acik: "true veya false" }],
+  ["youtube_ara", "YouTube'da video arar ve linklerini verir (ornek: 'Baykalem son videosu', 'valorant lineup shorts'). Sonra stil_cikar ya da telefonda_ac ile kullanilabilir.", { sorgu: "arama", tur: "shorts ya da bos", adet: "kac sonuc" }],
+  ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
+  ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu yt-dlp ile Indirilenler'e indirir), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
   ["dolar_alarm", "Dolar/TL kurunu soyler; kur verilirse o seviye gecilince bildirim kurar.", { kur: "TL seviyesi (opsiyonel)" }],
@@ -2110,6 +2158,20 @@ async function aracCalistir(env, ad, a) {
     if (ad === "kanal_istatistik") return await kanalIstatistik(env, a);
     if (ad === "musteri_raporu") return await musteriRaporu(env, a);
     if (ad === "mola") { const ac = !/false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mola_acik", ac); return ac ? "Mola hatırlatıcısı açık (mesai dışında 10, 12 ve 23'te)." : "Mola hatırlatıcısı kapalı."; }
+    if (ad === "youtube_ara") return await youtubeAra(env, a);
+    if (ad === "laptop_komut") return await laptopKomut(env, a);
+    if (ad === "telefonda_ac") {
+      const UYG = { youtube: "https://www.youtube.com", discord: "https://discord.com/app", drive: "https://drive.google.com", instagram: "https://www.instagram.com", tiktok: "https://www.tiktok.com",
+        spotify: "https://open.spotify.com", whatsapp: "https://wa.me", gmail: "https://mail.google.com", takvim: "https://calendar.google.com", twitch: "https://www.twitch.tv", reddit: "https://www.reddit.com", harita: "https://maps.google.com" };
+      let h = String(a.hedef || "").trim();
+      if (!/^https?:/.test(h)) {
+        const k = Object.keys(UYG).find((x) => h.toLowerCase().includes(x));
+        if (k) h = UYG[k];
+        else if (/^\d$/.test(h)) { const y = await kvOku(env, "son_youtube", []); if (y[+h - 1]) h = "https://youtu.be/" + y[+h - 1].id; }
+      }
+      if (!/^https?:/.test(h)) return "HATA: acilacak link/uygulama anlasilmadi.";
+      return { metin: "Telefonda aciyorum: " + h, link: h, ekran: { ac: h } };
+    }
     if (ad === "harcama") return await harcama(env, a);
     if (ad === "haftalik_hedef") return await haftalikHedef(env, a);
     if (ad === "dolar_alarm") return await dolarAlarm(env, a);
@@ -2457,6 +2519,13 @@ export default {
       const f = (await kvOku(env, "faturalar", {}))[fm[1]];
       if (!f) return new Response("Fatura bulunamadi", { status: 404 });
       return new Response(faturaSayfa(f), { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (request.method === "GET" && url.pathname === "/laptop-komut") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) > 5 * 60e3) await kvYaz(env, "laptop_son_gorulme", Date.now()); // KV yazma limiti icin seyrek
+      const l = await kvOku(env, "laptop_komutlar", []);
+      if (l.length) await kvYaz(env, "laptop_komutlar", []);
+      return Response.json({ komutlar: l.filter((k) => Date.now() - k.zaman < 30 * 60e3) });
     }
     if (request.method === "GET" && url.pathname === "/portfolyo") {
       return new Response(await portfolyoSayfa(env), { headers: { "content-type": "text/html; charset=utf-8" } });

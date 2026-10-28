@@ -76,8 +76,41 @@ def konus(sifre, wav, gecmis):
         print("(ses calinamadi:", e, ")")
     return j
 
+UYGULAMALAR = {  # Jarvis'in acabilecegi uygulamalar (Windows)
+    "discord": r"%LOCALAPPDATA%\Discord\Update.exe --processStart Discord.exe",
+    "chrome": "start chrome", "spotify": "start spotify:", "steam": "start steam:", "valorant": "start riotclient:",
+    "explorer": "explorer", "dosyalar": "explorer", "obs": "start obs64", "capcut": "start capcut",
+    "premiere": "start \"\" \"Adobe Premiere Pro.exe\"", "notepad": "notepad", "hesap makinesi": "calc", "youtube": "start https://www.youtube.com",
+}
+
+def komut_dongusu(sifre):
+    """Jarvis'in laptopa yolladigi komutlari 15 sn'de bir alir ve yapar."""
+    import threading, webbrowser
+    def calis():
+        while True:
+            try:
+                r = requests.get(URL + "/laptop-komut", headers={"x-secret": sifre}, timeout=20)
+                for k in r.json().get("komutlar", []):
+                    tur, d = k.get("tur"), k.get("deger", "")
+                    print(f"[Jarvis komutu] {tur}: {d}")
+                    if tur == "ac": webbrowser.open(d if d.startswith("http") else "https://www.google.com/search?q=" + requests.utils.quote(d))
+                    elif tur == "uygulama":
+                        c = next((v for a, v in UYGULAMALAR.items() if a in d.lower()), None)
+                        if c: subprocess.Popen(os.path.expandvars(c), shell=True)
+                        else: print("Bilinmeyen uygulama:", d)
+                    elif tur == "indir":
+                        hedef = os.path.join(os.path.expanduser("~"), "Downloads", "%(title)s.%(ext)s")
+                        subprocess.Popen([sys.executable, "-m", "yt_dlp", "-o", hedef, d])
+                    elif tur == "yaz":
+                        subprocess.run("clip", input=d.encode("utf-16"), shell=True)
+            except Exception as e:
+                pass
+            time.sleep(15)
+    threading.Thread(target=calis, daemon=True).start()
+
 def main():
     a = ayar(); model_indir()
+    komut_dongusu(a["sifre"])
     rec = KaldiRecognizer(Model(MODEL_YOL), HIZ)
     q = queue.Queue()
     print("Hazir. 'Jarvis' de. (Kapatmak icin Ctrl+C)")
