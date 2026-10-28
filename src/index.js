@@ -1549,7 +1549,7 @@ async function sabahOzeti(env) {
   if (env.DRIVE_SCRIPT_URL) { try { parcalar.push(await mailKontrol(env, {})); } catch (e) {} }
   const sistem = SISTEM_TEMEL + "\n\nEren az once uyandi. Asagidaki bilgilerle ona sicak, dogal ve kisa bir sabah ozeti ver (en fazla 6-7 cumle): " +
     "gunaydin de, bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
-    "gune dair tek bir faydali oneride bulun. Madde isareti kullanma.";
+    "gune dair tek bir faydali oneride bulun. En sonda 'Gunun Ingilizcesi' de: musterilerle yazisirken ise yarayan tek bir kisa Ingilizce kalip, okunusu ve Turkce anlami (her gun farkli olsun). Madde isareti kullanma.";
   const mesaj = [{ role: "user", content: parcalar.join("\n") }];
   let cevap;
   try { cevap = env.GROQ_API_KEY ? await sorGroq(env, sistem, mesaj) : await sorGemini(env, sistem, mesaj, MODELLER(env).sohbet); }
