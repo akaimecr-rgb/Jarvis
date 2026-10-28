@@ -733,7 +733,7 @@ function wavYap(pcm, hz) {
 async function sesUret(env, metin) {
   // 1) ElevenLabs (kota dolduysa 6 saat hic denenmez, bekletmez)
   if (env.ELEVENLABS_API_KEY && Date.now() > (await kvOku(env, "eleven_kapali_kadar", 0))) {
-    try { return { veri: await elevenSes(env, metin), tur: "audio/mpeg" }; }
+    try { return { veri: await elevenSes(env, metin), tur: "audio/mpeg", kaynak: "eleven" }; }
     catch (e) { if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "eleven_kapali_kadar", Date.now() + 6 * 3600 * 1000); }
   }
   // 2) Gemini TTS
@@ -1950,7 +1950,18 @@ export default {
       }
       try {
         const { metin = "" } = await request.json();
-        const ses = await sesUret(env, metin.slice(0, 1500));
+        const m = metin.slice(0, 1500);
+        // Kisa/tekrar eden cumleler (alarm, selamlar) bir kez uretilip 30 gun saklanir: ses kotasi bitmesin
+        const kisa = m.length <= 140 && env.HAFIZA;
+        const anahtar = kisa ? "ses_" + Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(m)))).map((b) => b.toString(16).padStart(2, "0")).join("") : "";
+        if (kisa) {
+          const k = await env.HAFIZA.getWithMetadata(anahtar, { type: "arrayBuffer" });
+          if (k && k.value) return new Response(k.value, { headers: { "content-type": (k.metadata && k.metadata.tur) || "audio/mpeg", "x-onbellek": "1" } });
+        }
+        const ses = await sesUret(env, m);
+        if (kisa && ses.kaynak === "eleven" && ses.veri.length < 400000) {
+          try { await env.HAFIZA.put(anahtar, ses.veri, { expirationTtl: 30 * 864e2, metadata: { tur: ses.tur, kaynak: ses.kaynak || "" } }); } catch (e) {}
+        }
         return new Response(ses.veri, { headers: { "content-type": ses.tur } });
       } catch (e) {
         return new Response(e.message, { status: 502 });
