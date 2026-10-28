@@ -365,7 +365,13 @@ async function basvuruYaz(env, metin) {
 // ---------------- Portfolyo (herkese acik sayfa: /portfolyo) ----------------
 async function portfolyoEkle(env, a) {
   const l = await kvOku(env, "portfolyo", []);
-  const link = String(a.link || "");
+  let link = String(a.link || "");
+  if (/^(son|en son|son kurgu)$/i.test(link.trim()) && env.__kok) {
+    const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=10&status=success`);
+    const r = (j.workflow_runs || [])[0];
+    if (!r) return "HATA: bitmis kurgu bulunamadi.";
+    link = await videoLinki(env, r.run_number, env.__kok);
+  }
   if (!/^https?:\/\//.test(link)) return "HATA: gecerli bir video linki gerekli (YouTube vb.).";
   l.push({ baslik: String(a.baslik || "Video"), link, aciklama: String(a.aciklama || ""), tur: String(a.tur || "Shorts") });
   await kvYaz(env, "portfolyo", l.slice(-30));
@@ -379,7 +385,8 @@ async function portfolyoSayfa(env) {
   const yt = (u) => (u.match(/(?:youtu\.be\/|v=|shorts\/)([\w-]{11})/) || [])[1];
   const kartlar = l.map((v) => {
     const id = yt(v.link);
-    const medya = id ? `<iframe src="https://www.youtube.com/embed/${id}" loading="lazy" allowfullscreen></iframe>` : `<a class="ac" href="${e(v.link)}" target="_blank">Watch video ↗</a>`;
+    const medya = id ? `<iframe src="https://www.youtube.com/embed/${id}" loading="lazy" allowfullscreen></iframe>` :
+      v.link.includes("/video/") ? `<video src="${e(v.link)}" poster="${e(v.link)}&kapak=1" controls preload="none" playsinline></video>` : `<a class="ac" href="${e(v.link)}" target="_blank">Watch video ↗</a>`;
     return `<div class="kart">${medya}<h3>${e(v.baslik)}</h3><span class="tur">${e(v.tur)}</span><p>${e(v.aciklama)}</p></div>`;
   }).join("");
   const iletisim = env.PORTFOLYO_ILETISIM || "Send me a DM on Reddit or Discord.";
@@ -387,7 +394,7 @@ async function portfolyoSayfa(env) {
 <style>:root{color-scheme:dark}body{margin:0;background:#05080f;color:#e6f1ff;font-family:system-ui,sans-serif}header{padding:48px 20px 24px;text-align:center}
 h1{margin:0;font-size:34px;color:#67e8f9}header p{color:#9fb7c9;max-width:620px;margin:12px auto 0;line-height:1.6}.etiket{display:inline-block;margin:6px 4px;padding:6px 12px;border:1px solid #155e75;border-radius:999px;font-size:13px;color:#a5f3fc}
 .izgara{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;padding:20px;max-width:1100px;margin:0 auto}.kart{background:#0b1424;border:1px solid #12324a;border-radius:14px;overflow:hidden;padding-bottom:12px}
-.kart iframe{width:100%;aspect-ratio:9/16;max-height:460px;border:0;background:#000}.kart h3{margin:12px 14px 4px;font-size:17px}.kart p{margin:6px 14px;color:#9fb7c9;font-size:14px}.tur{margin:0 14px;font-size:12px;color:#22d3ee}
+.kart iframe,.kart video{width:100%;aspect-ratio:9/16;max-height:460px;border:0;background:#000}.kart h3{margin:12px 14px 4px;font-size:17px}.kart p{margin:6px 14px;color:#9fb7c9;font-size:14px}.tur{margin:0 14px;font-size:12px;color:#22d3ee}
 .ac{display:block;padding:60px 0;text-align:center;color:#67e8f9}footer{text-align:center;padding:30px 20px 50px;color:#9fb7c9}</style></head><body>
 <header><h1>Eren — Video Editor</h1><p>Short-form and long-form editing for creators: YouTube Shorts, TikTok, Reels and full YouTube videos. Gaming (Valorant) specialist. Fast turnaround, clean captions, engaging pacing.</p>
 <div><span class="etiket">YouTube Shorts / TikTok / Reels</span><span class="etiket">Gaming & Valorant</span><span class="etiket">Long-form YouTube</span><span class="etiket">Captions & motion</span><span class="etiket">Thumbnails</span></div></header>
@@ -1553,7 +1560,7 @@ const ARACLAR = [
     { musteri: "musteri adi, ornek GKey", aciklama: "is, ornek 3 Valorant Shorts", ucret: "ucret sayisi", birim: "USD veya TL", teslim: "teslim zamani, ornek yarin 18:00" }],
   ["is_guncelle", "Bir isin durumunu degistirir: teslim edildi, odendi veya iptal.", { is: "is no, musteri adi ya da aciklamadan bir kelime", durum: "teslim, odendi veya iptal", ucret: "odenen tutar (opsiyonel)" }],
   ["gelir_ozeti", "Bu ayki kazanci, aylik hedefe (800 dolar) ne kadar kaldigini, bekleyen odemeleri ve devam eden isleri verir; ekranda gosterir.", {}],
-  ["portfolyo_ekle", "Eren'in herkese acik portfolyo sayfasina (basvurularda kullanilir) bir video ekler.", { baslik: "video basligi", link: "YouTube/TikTok linki", aciklama: "kisa aciklama (Ingilizce)", tur: "Shorts, Gaming, Long-form vb." }],
+  ["portfolyo_ekle", "Eren'in herkese acik portfolyo sayfasina (basvurularda kullanilir) bir video ekler.", { baslik: "video basligi", link: "YouTube/TikTok linki ya da son kurgu icin 'son'", aciklama: "kisa aciklama (Ingilizce)", tur: "Shorts, Gaming, Long-form vb." }],
   ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
     { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
 ].map(([name, description, alanlar]) => ({
