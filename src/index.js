@@ -862,10 +862,15 @@ function wavYap(pcm, hz) {
 }
 
 async function sesUret(env, metin) {
+  const basla = Date.now();
   // Cartesia ekliyse once o (Eren'in sectigi ses); SES_ONCELIK=eleven ile ElevenLabs one alinir
   if (env.CARTESIA_API_KEY && env.CARTESIA_VOICE_ID && env.SES_ONCELIK !== "eleven" && Date.now() > (await kvOku(env, "cartesia_kapali_kadar", 0))) {
     try { return { veri: await cartesiaSes(env, metin), tur: "audio/mpeg", kaynak: "cartesia" }; }
-    catch (e) { await kvYaz(env, "cartesia_son_hata", String(e.message || e).slice(0, 120)); if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 6 * 3600e3); }
+    catch (e) {
+      const m = String(e.message || e); await kvYaz(env, "cartesia_son_hata", m.slice(0, 140));
+      if (/40[1-3]|429/.test(m)) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 6 * 3600e3);
+      else if (/40\d|42\d/.test(m)) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 3600e3);
+    }
   }
   // 1) ElevenLabs (kota dolduysa 6 saat hic denenmez, bekletmez)
   if (env.ELEVENLABS_API_KEY && Date.now() > (await kvOku(env, "eleven_kapali_kadar", 0))) {
@@ -882,8 +887,8 @@ async function sesUret(env, metin) {
     try { return { veri: await cartesiaSes(env, metin), tur: "audio/mpeg", kaynak: "cartesia" }; }
     catch (e) { if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 6 * 3600e3); }
   }
-  // 4) Gemini TTS
-  if (Date.now() > (await kvOku(env, "tts_kapali_kadar", 0))) {
+  // 4) Gemini TTS (zaman kaldiysa)
+  if (Date.now() - basla < 5000 && Date.now() > (await kvOku(env, "tts_kapali_kadar", 0))) {
     const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
     let sonHata;
     for (const model of modeller) {
@@ -911,7 +916,7 @@ async function azureSes(env, metin) {
 async function cartesiaSes(env, metin) {
   if (!env.CARTESIA_VOICE_ID) throw new Error("CARTESIA_VOICE_ID yok");
   const iste = (kontrollu) => fetch("https://api.cartesia.ai/tts/bytes", {
-    method: "POST",
+    method: "POST", signal: AbortSignal.timeout(+env.CARTESIA_SURE || 7000),
     headers: { "X-API-Key": env.CARTESIA_API_KEY, "Cartesia-Version": env.CARTESIA_SURUM || "2025-04-16", "content-type": "application/json" },
     body: JSON.stringify({ model_id: env.CARTESIA_MODEL || "sonic-2", transcript: metin, language: "tr",
       voice: { mode: "id", id: env.CARTESIA_VOICE_ID, ...(kontrollu ? { __experimental_controls: { speed: env.CARTESIA_HIZ || "normal", emotion: (env.CARTESIA_DUYGU || "positivity:low").split(",") } } : {}) },
@@ -919,7 +924,7 @@ async function cartesiaSes(env, metin) {
   });
   let r = await iste(true);
   if (r.status === 400 || r.status === 422) r = await iste(false); // ses ayari desteklenmiyorsa ayarsiz dene
-  if (!r.ok) throw new Error("Cartesia " + r.status);
+  if (!r.ok) throw new Error("Cartesia " + r.status + " " + (await r.text().catch(() => "")).slice(0, 90));
   return new Uint8Array(await r.arrayBuffer());
 }
 
@@ -944,7 +949,7 @@ async function googleSes(metin) {
 async function elevenSes(env, metin) {
   const ses = env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb"; // George: sakin, derin, Ingiliz erkek sesi
   const kontrol = new AbortController();
-  const zaman = setTimeout(() => kontrol.abort(), 8000);
+  const zaman = setTimeout(() => kontrol.abort(), 5000);
   try {
     const r = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + ses + "?output_format=mp3_44100_64", {
       method: "POST",
@@ -1060,7 +1065,11 @@ async function saglikKontrol(env) {
       return `${kalan} karakter kaldı (yenilenme ${yenilenme})`;
     }),
     dene("Azure ses", env.AZURE_SPEECH_KEY, async () => { await azureSes(env, "Test."); return "çalışıyor"; }),
-    dene("Cartesia ses", env.CARTESIA_API_KEY, async () => { await cartesiaSes(env, "Test."); return "çalışıyor"; }),
+    dene("Cartesia ses", env.CARTESIA_API_KEY, async () => {
+      if (!env.CARTESIA_VOICE_ID) throw new Error("CARTESIA_VOICE_ID eklenmemiş");
+      const t = Date.now(); await kvSil(env, "cartesia_kapali_kadar"); await cartesiaSes(env, "Merhaba Eren, ses testi.");
+      return "çalışıyor, " + ((Date.now() - t) / 1000).toFixed(1) + " sn";
+    }),
     dene("Ses zinciri (Jarvis'in konuştuğu ses)", true, async () => {
       const t = Date.now(); const r = await sesUret(env, "Merhaba Eren, ses testi.");
       return `${r.kaynak || (r.tur === "audio/wav" ? "gemini" : "google")} cevap verdi, ${((Date.now() - t) / 1000).toFixed(1)} sn`;
