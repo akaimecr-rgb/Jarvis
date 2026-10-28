@@ -74,6 +74,15 @@ class MainActivity : Activity() {
         k.addView(dugme("Konuşmayı şimdi başlat") { jarvisiAc(this, "serbest") })
         k.addView(dugme("Alarmı şimdi dene") { jarvisiAc(this, "alarm&test=1") })
         k.addView(dugme("Dinlemeyi aç") { getSharedPreferences("jarvis", MODE_PRIVATE).edit().putBoolean("uyku", false).apply(); servisKomutu(this, WakeService.BASLAT); k.postDelayed({ guncelle() }, 1500) })
+        val hp = getSharedPreferences("jarvis", MODE_PRIVATE)
+        fun hAd() = when (hp.getString("hassasiyet", "normal")) { "yuksek" -> "Yüksek (kolay uyanır)"; "dusuk" -> "Düşük (zor uyanır)"; else -> "Normal" }
+        lateinit var hd: android.widget.Button
+        hd = dugme("Uyanma hassasiyeti: " + hAd()) {
+            val sira = mapOf("normal" to "yuksek", "yuksek" to "dusuk", "dusuk" to "normal")
+            hp.edit().putString("hassasiyet", sira[hp.getString("hassasiyet", "normal")] ?: "normal").apply()
+            hd.text = "Uyanma hassasiyeti: " + hAd()
+        }
+        k.addView(hd)
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#05080f")); addView(k) })

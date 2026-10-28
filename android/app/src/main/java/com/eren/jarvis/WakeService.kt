@@ -27,9 +27,9 @@ class WakeService : Service(), RecognitionListener {
         private var model: Model? = null
         private var kelimeler: List<String> = emptyList()
         // Jarvis'e benzeyen kelimeler (modelde hangisi varsa)
-        val ADAYLAR = listOf("jarvis", "travis", "jervis", "harvis", "service", "jarvas")
+        val ADAYLAR = listOf("jarvis", "travis", "jervis", "harvis", "service", "jarvas", "charvis", "davis", "carvis")
         // Sadece kisa ve tek basina soylenen "Jarvis" benzeri kelimeler
-        val TETIK = Regex("^(hey |hay |ey )?(jar ?vis|jervis|jarvas|jarvi|travis)$")
+        val TETIK = Regex("^(hey |hay |ey |a )?(jar ?vis|jervis|jarvas|jarvi|travis|harvis|service|charvis|davis|carvis)$")
         @Volatile var sonDuyulan = ""
     }
 
@@ -134,6 +134,19 @@ class WakeService : Service(), RecognitionListener {
         }
     }
 
+    private var sonBildirimYazma = 0L
+    private fun bildirimYaz(metin: String) {
+        val simdi = System.currentTimeMillis()
+        if (simdi - sonBildirimYazma < 1500) return
+        sonBildirimYazma = simdi
+        try {
+            val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).putExtra("ayar", true), PendingIntent.FLAG_IMMUTABLE)
+            val n = Notification.Builder(this, KANAL_SERVIS).setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentTitle("Jarvis dinliyor").setContentText(metin).setContentIntent(pi).setOngoing(true).setOnlyAlertOnce(true).build()
+            getSystemService(android.app.NotificationManager::class.java).notify(1, n)
+        } catch (_: Exception) {}
+    }
+
     private fun birak(yeniDurum: String) {
         try { ss?.stop(); ss?.shutdown() } catch (_: Exception) {}
         ss = null
@@ -151,7 +164,11 @@ class WakeService : Service(), RecognitionListener {
             else (0 until dizi.length()).minOf { dizi.getJSONObject(it).optDouble("conf", 1.0) }
         } catch (_: Exception) { 1.0 }
         if (metin.isNotBlank()) sonDuyulan = metin + " (%" + (guven * 100).toInt() + ")"
-        if (TETIK.matches(metin.trim()) && guven >= 0.8) {
+        // Hassasiyet (Ayarlar): yuksek=0.45, normal=0.6, dusuk=0.78
+        val esik = when (getSharedPreferences("jarvis", MODE_PRIVATE).getString("hassasiyet", "normal")) { "yuksek" -> 0.45; "dusuk" -> 0.78; else -> 0.6 }
+        val temiz = metin.replace("[unk]", "").trim().replace(Regex("\\s+"), " ")
+        if (metin.isNotBlank()) bildirimYaz("Son duyduğum: " + temiz.ifEmpty { "?" } + " (%" + (guven * 100).toInt() + ")")
+        if (TETIK.matches(temiz) && guven >= esik) {
             tetiklendi = true
             ana.post {
                 birak("konuşuyor")
