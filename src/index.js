@@ -2503,15 +2503,20 @@ async function yapilacaklar(env) {
   }
 }
 
-async function sohbetEt(env, metin, sesB64) {
-  metin = metin || "";
-  // Ekran komutlari: yapay zekaya sormadan dogrudan (hizli ve her seferinde ayni)
+async function ekranKomutu(env, metin) {
+// Ekran komutlari: yapay zekaya sormadan dogrudan (hizli ve her seferinde ayni)
   const kisaM = metin.toLocaleLowerCase("tr").replace(/[.!?]/g, "").trim();
   if (kisaM && kisaM.length < 60) {
     const hm = kisaM.match(/^(?:jarvis,? )?(?:harita(?:y[ıi])?|haritalar(?:ı|i)?)(?: a[çc](?:ar m[ıi]s[ıi]n)?)?(?:,? (.+?))?(?: haritas[ıi])?(?: a[çc])?$/) || kisaM.match(/^(?:jarvis,? )?(.+?) haritas[ıi](?:n[ıi])? a[çc]$/);
     if (hm) { const r = await aracCalistir(env, "harita", { yer: hm[1] && !/^(a[çc]|g[öo]ster)$/.test(hm[1]) ? hm[1] : "" }); return { duydum: metin, cevap: r.metin || String(r), beyin: "sistem", ekran: r.ekran }; }
     if (/^(?:jarvis,? )?sistem durumu?(?:nu)?(?: g[öo]ster| nedir| ne)?$/.test(kisaM)) { const r = await saglikKontrol(env); return { duydum: metin, cevap: r.metin.slice(0, 300), beyin: "sistem", ekran: r.ekran }; }
   }
+  return null;
+}
+
+async function sohbetEt(env, metin, sesB64) {
+  metin = metin || "";
+  { const hk = await ekranKomutu(env, metin); if (hk) return hk; }
   if (metin && metin.toLocaleLowerCase("tr").includes("sohbeti sil")) {
     await kvYaz(env, "gecmis", []);
     return { cevap: "Sohbet gecmisini sildim. Notlarim duruyor.", beyin: "sistem" };
@@ -2539,6 +2544,7 @@ async function sohbetEt(env, metin, sesB64) {
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
       if (UYKU.test(metin)) { await uykuKaydet(env, "yat").catch(() => {}); } if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
+      { const hk = await ekranKomutu(env, metin); if (hk) return hk; }
       const kv = komut(metin);
       if ((kv && ["onayla", "iptal", "geri_al", "puan_iyi", "puan_kotu"].includes(kv)) || (!env.GROQ_API_KEY && !env.ANTHROPIC_API_KEY && (kv || (metin.length < 600 && (await niyetBul(env, metin)))))) return { duydum: metin, komut: true };
       sesB64 = null; // yazili yoldan devam
