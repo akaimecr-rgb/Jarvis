@@ -42,6 +42,9 @@ async function kvOku(env, k, v0) {
 async function kvYaz(env, k, v) {
   if (env.HAFIZA) await env.HAFIZA.put(k, JSON.stringify(v));
 }
+async function kvSil(env, k) {
+  if (env.HAFIZA) await env.HAFIZA.delete(k);
+}
 
 // ---------------- Gorev dagitimi: her is icin en uygun model ----------------
 // Cloudflare'de Text degiskeniyle degistirilebilir.
@@ -861,6 +864,41 @@ async function sorGroq(env, sistem, gecmis) {
   return j.choices?.[0]?.message?.content || "";
 }
 
+// ---------------- Sistem sagligi: her servisi tek tek dener ----------------
+async function saglikKontrol(env) {
+  const sonuc = [];
+  const dene = async (ad, gerekli, fn) => {
+    if (!gerekli) { sonuc.push({ ad, durum: "yok", not: "anahtar eklenmemiş" }); return; }
+    try { const n = await Promise.race([fn(), new Promise((_, r) => setTimeout(() => r(new Error("zaman aşımı")), 9000))]); sonuc.push({ ad, durum: "iyi", not: n || "" }); }
+    catch (e) { sonuc.push({ ad, durum: "bozuk", not: String(e.message || e).slice(0, 80) }); }
+  };
+  const getJ = async (u, h) => { const r = await fetch(u, { headers: h }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); };
+  await Promise.all([
+    dene("Groq (beyin)", env.GROQ_API_KEY, async () => { await getJ("https://api.groq.com/openai/v1/models", { Authorization: "Bearer " + env.GROQ_API_KEY }); }),
+    dene("Cerebras (yedek beyin)", env.CEREBRAS_API_KEY, async () => { await getJ("https://api.cerebras.ai/v1/models", { Authorization: "Bearer " + env.CEREBRAS_API_KEY }); }),
+    dene("Gemini", env.GEMINI_API_KEY, async () => { await getJ(`https://generativelanguage.googleapis.com/v1beta/models?key=${env.GEMINI_API_KEY}&pageSize=1`); }),
+    dene("Claude", env.ANTHROPIC_API_KEY, async () => { await getJ("https://api.anthropic.com/v1/models", { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" }); }),
+    dene("ElevenLabs (ses)", env.ELEVENLABS_API_KEY, async () => {
+      const j = await getJ("https://api.elevenlabs.io/v1/user/subscription", { "xi-api-key": env.ELEVENLABS_API_KEY });
+      const kalan = (j.character_limit || 0) - (j.character_count || 0);
+      const yenilenme = j.next_character_count_reset_unix ? new Date(j.next_character_count_reset_unix * 1000).toISOString().slice(0, 10) : "?";
+      if (kalan <= 50) throw new Error(`kota bitti, ${yenilenme} yenilenir`);
+      return `${kalan} karakter kaldı (yenilenme ${yenilenme})`;
+    }),
+    dene("GitHub (kurgu, kod)", env.GITHUB_TOKEN, async () => { const j = await gh(env, "/rate_limit"); return `${j.rate?.remaining} istek hakkı`; }),
+    dene("Google köprüsü (Drive/Gmail/Takvim)", env.DRIVE_SCRIPT_URL, async () => { await kvSil(env, "drive_token").catch(() => {}); const b = await driveBilgi(env); if (!b) throw new Error("ayar eksik"); }),
+    dene("Discord", env.DISCORD_BOT_TOKEN, async () => { const j = await discord(env, "/users/@me"); return j.username; }),
+  ]);
+  const sira = ["Groq (beyin)", "Cerebras (yedek beyin)", "Gemini", "Claude", "ElevenLabs (ses)", "GitHub (kurgu, kod)", "Google köprüsü (Drive/Gmail/Takvim)", "Discord"];
+  sonuc.sort((a, b) => sira.indexOf(a.ad) - sira.indexOf(b.ad));
+  await kvYaz(env, "son_saglik", { zaman: Date.now(), sonuc });
+  const bozuk = sonuc.filter((x) => x.durum === "bozuk");
+  const metin = (bozuk.length ? "Sorunlu: " + bozuk.map((x) => `${x.ad} (${x.not})`).join("; ") + ". " : "Çalışan her şey sağlam. ") +
+    "Eklenmemiş: " + (sonuc.filter((x) => x.durum === "yok").map((x) => x.ad).join(", ") || "yok") + ". " +
+    sonuc.filter((x) => x.durum === "iyi" && x.not).map((x) => `${x.ad}: ${x.not}`).join("; ");
+  return { metin, ekran: { panel: "saglik", veri: sonuc } };
+}
+
 // Whisper'in sessizlikte uydurdugu bilinen Turkce cumleler
 const HAYALET = /altyaz[ıi]|m\.?\s?k\.?$|abone ol|izledi[gğ]iniz i[cç]in|bir sonraki videoda|kanal[ıi]ma|^\W*$/i;
 function hayaletMi(metin) {
@@ -1395,6 +1433,15 @@ async function saatlikIs(env) {
       if (geciken.length) await bildirimEkle(env, "Ödeme bekleyen " + geciken.length + " iş var 💸", geciken.map((i) => i.musteri + ": " + i.aciklama).join(", ").slice(0, 140) + ". Jarvis'ten nazik hatırlatma mesajı isteyebilirsin.", "");
     } catch (e) {}
   }
+  // 3e) 6 saatte bir saglik kontrolu; yeni bozulan servis varsa bildir
+  if (["00", "06", "12", "18"].includes(z.saat.slice(0, 2))) {
+    try {
+      const once = ((await kvOku(env, "son_saglik", null)) || { sonuc: [] }).sonuc.filter((x) => x.durum === "bozuk").map((x) => x.ad);
+      const s2 = await saglikKontrol(env);
+      const yeni = s2.ekran.veri.filter((x) => x.durum === "bozuk" && !once.includes(x.ad));
+      if (yeni.length) await bildirimEkle(env, "Jarvis: bir servis bozuldu ⚠️", yeni.map((x) => x.ad + ": " + x.not).join("; ").slice(0, 140), "");
+    } catch (e) {}
+  }
   // 3c) Pazar 23:00 haftalik rapor
   if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
     await kvYaz(env, "son_haftalik", z.tarih);
@@ -1444,6 +1491,7 @@ async function sabahOzeti(env) {
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
+  ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
   ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Link verilmezse Drive Jarvis/ornek klasorunu kullanir.",
@@ -1506,6 +1554,7 @@ async function aracCalistir(env, ad, a) {
       if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
+    if (ad === "sistem_durumu") return await saglikKontrol(env);
     if (ad === "kurgular") return await kurguListesi(env, env.__kok);
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
     if (ad === "stil_cikar") {

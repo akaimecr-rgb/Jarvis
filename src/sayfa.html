@@ -356,6 +356,8 @@ function panelGoster(e){
     if(!(v.isler||[]).length)satir("<td colspan='3' class='bos'>Açık iş yok. Bekleyen ödeme: $"+k(v.bekleyen)+"</td>")}
   else if(e.panel==="plan"){bas.textContent="BUGÜNÜN PLANI";
     (e.veri||[]).slice(0,9).forEach(function(p){satir("<td>"+k(p.saat)+"</td><td colspan='2' style='text-align:left;white-space:normal'>"+k(p.metin)+"</td>")})}
+  else if(e.panel==="saglik"){bas.textContent="SİSTEM DURUMU";
+    (e.veri||[]).forEach(function(x){satir("<td style='text-align:left;white-space:normal'>"+k(x.ad)+"</td><td style='white-space:normal'><small>"+k(x.not).slice(0,40)+"</small></td><td class='"+(x.durum==="iyi"?"acik'>İYİ":x.durum==="bozuk"?"kapali'>BOZUK":"bilinmez'>YOK")+"</td>")})}
   else if(e.panel==="kurgular"){bas.textContent="SON KURGULAR";
     (e.veri||[]).slice(0,6).forEach(function(v){var tr=satir("<td>"+(v.kapak?"<img src='"+k(v.kapak)+"' style='width:34px;height:60px;object-fit:cover;border:1px solid #22d3ee55;border-radius:4px'>":"🎬")+"</td><td style='text-align:left;white-space:normal'>#"+k(v.run)+" "+k(v.ad).slice(0,24)+"</td><td class='"+(v.durum==="hazır"?"acik":v.durum==="hata"?"kapali":"bilinmez")+"'>"+k(v.durum)+(v.puan?"<br><small>"+k(v.puan)+"/10</small>":"")+"</td>");
       if(v.video){tr.className="tik";tr.onclick=function(){linkAc(v.video)}}})}
