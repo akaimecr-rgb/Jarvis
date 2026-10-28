@@ -986,7 +986,8 @@ async function baglam(env) {
   let h = "";
   try { const v = await havaAl(env); h = `Hava (${v.yer}): şu an ${v.simdi}; bugün ${v.gunler[0].min}-${v.gunler[0].max}°C, yağmur ihtimali %${v.gunler[0].yagmur}, gün batımı ${v.gunler[0].gunbatimi}.`; } catch (e) {}
   const k = await konumAl(env);
-  return `\n\nSU ANKI DURUM: ${z.gun} ${z.tarih}, saat ${z.saat} (Türkiye). Eren'in konumu: ${k.ad}. ${h}`;
+  const mesai = mesaideMi(env) ? " Eren su an garsonluk mesaisinde (iste): cevaplarini ozellikle kisa tut, uzun is onerme." : "";
+  return `\n\nSU ANKI DURUM: ${z.gun} ${z.tarih}, saat ${z.saat} (Türkiye). Eren'in konumu: ${k.ad}. ${h}${mesai}`;
 }
 
 // Gemini + Google arama ile internet arastirmasi
@@ -1219,7 +1220,20 @@ async function takvimEkle(env, istek) {
 }
 
 // Bildirim kuyrugu (telefon uygulamasi ceker)
+// Mesai saatinde (varsayilan 13:00-22:00) sadece onemli bildirimler hemen gider; digerleri mesai bitince ozet olur
+function mesaideMi(env) {
+  const [b, s] = (env.MESAI || "13-22").split("-").map(Number);
+  const sa = +trSimdi().saat.slice(0, 2);
+  return sa >= b && sa < s;
+}
+const ONEMLI = /gkey|ödeme|odeme|bozuldu|hata|kurgu hazır|teslim|hatırlat/i;
 async function bildirimEkle(env, baslik, metin, link) {
+  if (mesaideMi(env) && !ONEMLI.test(baslik + " " + metin) && !(await kvOku(env, "mesai_kapali", false))) {
+    const b = await kvOku(env, "bekleyen_bildirim", []);
+    b.push({ baslik, metin, link: link || "" });
+    await kvYaz(env, "bekleyen_bildirim", b.slice(-20));
+    return;
+  }
   const l = await kvOku(env, "bildirimler", []);
   l.push({ id: crypto.randomUUID().slice(0, 8), zaman: Date.now(), baslik, metin, link: link || "" });
   await kvYaz(env, "bildirimler", l.slice(-30));
@@ -1433,6 +1447,17 @@ async function saatlikIs(env) {
       if (geciken.length) await bildirimEkle(env, "Ödeme bekleyen " + geciken.length + " iş var 💸", geciken.map((i) => i.musteri + ": " + i.aciklama).join(", ").slice(0, 140) + ". Jarvis'ten nazik hatırlatma mesajı isteyebilirsin.", "");
     } catch (e) {}
   }
+  // 3f) Mesai bitti (22:xx): bekleyen bildirimleri tek ozet olarak gonder
+  const mesaiBitis = String((env.MESAI || "13-22").split("-")[1]).padStart(2, "0");
+  if (z.saat.startsWith(mesaiBitis) && (await kvOku(env, "son_mesai_ozet", "")) !== z.tarih) {
+    await kvYaz(env, "son_mesai_ozet", z.tarih);
+    const b = await kvOku(env, "bekleyen_bildirim", []);
+    await kvYaz(env, "bekleyen_bildirim", []);
+    const l = await kvOku(env, "bildirimler", []);
+    const ozet = b.length ? b.map((x) => x.baslik).slice(0, 6).join(" • ") : "Mesaide önemli bir şey olmadı.";
+    l.push({ id: crypto.randomUUID().slice(0, 8), zaman: Date.now(), baslik: "Mesai bitti, kolay gelsin 🙌 (" + b.length + " haber)", metin: ozet.slice(0, 200), link: "" });
+    await kvYaz(env, "bildirimler", l.slice(-30));
+  }
   // 3e) 6 saatte bir saglik kontrolu; yeni bozulan servis varsa bildir
   if (["00", "06", "12", "18"].includes(z.saat.slice(0, 2))) {
     try {
@@ -1491,6 +1516,7 @@ async function sabahOzeti(env) {
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
+  ["mesai_modu", "Mesai modunu ayarlar: mesaide onemsiz bildirimler bekletilip mesai bitince ozet gelir. Kapatmak icin acik=false.", { acik: "true veya false" }],
   ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
@@ -1554,6 +1580,7 @@ async function aracCalistir(env, ad, a) {
       if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
+    if (ad === "mesai_modu") { const kapali = /false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mesai_kapali", kapali); return kapali ? "Mesai modu kapalı: bütün bildirimler hemen gelecek." : "Mesai modu açık: 13:00-22:00 arası sadece önemli bildirimler (GKey, ödeme, kurgu, hata) gelir, gerisi mesai bitince özet olarak gelir."; }
     if (ad === "sistem_durumu") return await saglikKontrol(env);
     if (ad === "kurgular") return await kurguListesi(env, env.__kok);
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
