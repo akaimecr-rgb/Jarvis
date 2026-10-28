@@ -2185,6 +2185,7 @@ const ARAC_GRUPLARI = [
   [/fikir|valorant|yama|meta|lineup|twitch|klip|yayın|yayin|kick/i, ["fikir_uret", "klip_bul"]],
   [/mail|posta|gmail|takvim|randevu|toplantı|toplanti|etkinlik/i, ["mail_kontrol", "takvime_ekle"]],
   [/para|kazan|gelir|ödeme|odeme|ücret|ucret|hedef|\$|dolar|tl\b|iş ekle|teslim/i, ["is_ekle", "is_guncelle", "gelir_ozeti", "haftalik_rapor"]],
+  [/harita|haritayı|haritayi|nerede|konum|yol|işletme|isletme|dükkan|dukkan/i, ["harita", "yakin_yerler"]],
   [/hava|yağmur|yagmur|deprem|yakın|yakin|açık|acik|kafe|market|eczane|konum|nerede|plan|bugün|bugun|yarın|yarin|izin|boş|bos|saat/i, ["hava", "depremler", "yakin_yerler", "konum_ayarla", "gunluk_plan", "izin_gunu"]],
   [/alarm|uyandır|uyandir|sabah|mesai|bildirim|yapacak|temizle|rapor|hafta/i, ["alarm", "mesai_modu", "yapacaklari_temizle", "haftalik_rapor"]],
 ];
@@ -2214,6 +2215,7 @@ const ARACLAR = [
   ["uyku_ozeti", "Son gecelerin uyku saatlerini ve ortalamasini soyler.", {}],
   ["hafiza", "Jarvis'in Eren hakkinda bildiklerini listeler ya da bir seyi unutturur.", { unut: "unutulacak bilginin bir kelimesi (opsiyonel)" }],
   ["mesai_modu", "Mesai modunu ayarlar: mesaide onemsiz bildirimler bekletilip mesai bitince ozet gelir. Kapatmak icin acik=false.", { acik: "true veya false" }],
+  ["harita", "Eren'in ekraninda Jarvis tarzi tam ekran harita acar (konumu + cevredeki isletmeler, ne yaptiklari, saatleri). Bir yer adi verilirse oraya odaklanir.", { yer: "yer/semt adi (opsiyonel, ornek 'Manavgat selalesi')" }],
   ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
@@ -2313,6 +2315,16 @@ async function aracCalistir(env, ad, a) {
     if (ad === "uyku_ozeti") return await uykuOzeti(env);
     if (ad === "hafiza") return await hafiza(env, a);
     if (ad === "mesai_modu") { const kapali = /false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mesai_kapali", kapali); return kapali ? "Mesai modu kapalı: bütün bildirimler hemen gelecek." : "Mesai modu açık: 13:00-22:00 arası sadece önemli bildirimler (GKey, ödeme, kurgu, hata) gelir, gerisi mesai bitince özet olarak gelir."; }
+    if (ad === "harita") {
+      let k = await konumAl(env);
+      if (a.yer) {
+        try {
+          const g = await (await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tr&q=" + encodeURIComponent(a.yer + (/manavgat|antalya/i.test(a.yer) ? "" : " " + k.ad)), { headers: { "User-Agent": "jarvis-eren/1.0" } })).json();
+          if (g[0]) return { metin: a.yer + " haritada acildi.", ekran: { panel: "harita", lat: +g[0].lat, lon: +g[0].lon, isaret: a.yer, zoom: 16 } };
+        } catch (e) {}
+      }
+      return { metin: "Harita acildi: " + k.ad + " ve cevresindeki isletmeler.", ekran: { panel: "harita", lat: k.lat, lon: k.lon } };
+    }
     if (ad === "sistem_durumu") return await saglikKontrol(env);
     if (ad === "kurgular") return await kurguListesi(env, env.__kok);
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }

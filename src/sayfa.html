@@ -35,6 +35,25 @@ ul.liste li b{color:var(--cyan);font-weight:600;min-width:42px}
 .hava td:nth-child(2){text-align:center;font-size:16px}
 .hava td:last-child{text-align:right;color:var(--cyan2)}
 #sagPanel{overflow:hidden}
+.ozetBtn{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;margin:4px 0 6px;white-space:normal;overflow-wrap:anywhere;padding:12px;text-align:left;background:rgba(34,211,238,.07);border:1px solid var(--line);border-radius:10px;color:var(--text);font:600 15px Rajdhani,sans-serif;letter-spacing:.06em;cursor:pointer}
+.ozetBtn small{font:400 12px system-ui,sans-serif;letter-spacing:0;color:var(--muted)}.ozetBtn:active{background:rgba(34,211,238,.18)}
+#tamEkran{position:fixed;inset:0;z-index:60;background:rgba(2,7,13,.97);display:none;flex-direction:column;padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(10px + env(safe-area-inset-bottom,0px))}
+#tamEkran .ust{display:flex;align-items:center;gap:10px;padding:4px 2px 10px;border-bottom:1px solid var(--line)}
+#tamEkran h2{margin:0;flex:1;font:700 20px Rajdhani,sans-serif;letter-spacing:.14em;color:var(--cyan)}
+#tamEkran .kapat{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font:600 13px Rajdhani,sans-serif;letter-spacing:.1em}
+#tamIcerik{flex:1;overflow:auto;min-height:0;padding-top:8px}
+#tamIcerik table{width:100%;border-collapse:collapse}#tamIcerik td{padding:10px 8px;border-bottom:1px solid rgba(34,211,238,.12);font-size:15px;color:var(--text);vertical-align:top}
+#tamIcerik td small{color:var(--muted);font-size:12px}#tamIcerik td.acik{color:#4ade80}#tamIcerik td.kapali{color:#f87171}#tamIcerik td.bilinmez{color:var(--muted)}#tamIcerik tr.tik{cursor:pointer}
+#haritaKutu{position:absolute;inset:0}#tamIcerik.harita{position:relative;padding:0;margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+#haritaKutu .leaflet-tile-pane{filter:hue-rotate(150deg) saturate(1.6) brightness(1.05)}
+#haritaKutu .leaflet-container,#haritaKutu{background:#02070d}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#061824!important;color:var(--text)!important;border:1px solid var(--line)}
+.leaflet-popup-content{font:13px/1.45 system-ui,sans-serif;margin:10px 12px!important}.leaflet-popup-content b{color:var(--cyan);font-family:Rajdhani,sans-serif;font-size:16px;letter-spacing:.04em}
+.leaflet-popup-content a{color:var(--cyan2)}.leaflet-control-attribution{background:rgba(2,7,13,.7)!important;color:var(--muted)!important}.leaflet-control-attribution a{color:var(--muted)!important}
+.hrtAlt{position:absolute;left:10px;right:10px;bottom:10px;z-index:500;display:flex;gap:6px;flex-wrap:wrap}
+.hrtAlt button{background:rgba(6,24,36,.9);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:7px 12px;font:600 12px Rajdhani,sans-serif;letter-spacing:.08em}
+.hrtAlt button.secili{background:var(--cyan);color:#02070d}
+.benim{width:16px;height:16px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 6px rgba(34,211,238,.25),0 0 18px var(--cyan)}
 #havaTablo.mini{table-layout:fixed}#havaTablo.mini td{font-size:11.5px;padding:3px 6px;white-space:normal;line-height:1.25}
 #havaTablo.mini td:first-child{width:40px}#havaTablo.mini td:last-child{width:68px;white-space:nowrap}#sagPanel .kaydir{max-height:170px;overflow-y:auto}
 .byk{font-family:Orbitron;font-weight:700}.byk.y{color:#fbbf24}.byk.k{color:#f87171}
@@ -156,6 +175,7 @@ a{color:var(--cyan2)}
     <div class="btn" id="oynatKapat" style="flex:1">KAPAT</div>
   </div>
 </div>
+<div id="tamEkran"><div class="ust"><h2 id="tamBaslik">SİSTEM</h2><button class="kapat" onclick="tamKapat()">KAPAT ✕</button></div><div id="tamIcerik"></div></div>
 <script>
 // ---------------- Temel ----------------
 var $=function(i){return document.getElementById(i)};
@@ -339,7 +359,19 @@ setInterval(bildirimKontrol,60000);
 
 // ---------------- Dinamik sag panel (hava / deprem / yerler / plan) ----------------
 var sagMod="hava",sagZaman=null;
-function haritaAc(lat,lon,ad){var u="https://www.google.com/maps/search/?api=1&query="+lat+","+lon;if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank")}
+function googleHarita(lat,lon){var u="https://www.google.com/maps/search/?api=1&query="+lat+","+lon;if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank")}
+function haritaAc(lat,lon,ad){jarvisHarita({lat:lat,lon:lon,isaret:ad||"Burası"})}
+function tamAc(baslik,dugumler){$("tamBaslik").textContent=baslik;var ic=$("tamIcerik");ic.className="";ic.innerHTML="";
+  if(dugumler){var t=document.createElement("table");dugumler.forEach(function(d){t.appendChild(d)});ic.appendChild(t)}$("tamEkran").style.display="flex"}
+function tamKapat(){$("tamEkran").style.display="none";if(window._harita){try{window._harita.remove()}catch(e){}window._harita=null}}
+// Sag paneli sade tut: tablo yerine baslik + ozet butonu; dokununca tam ekran
+function panelSadelestir(baslik,ozet){var tb=$("havaTablo");var satirlar=Array.prototype.slice.call(tb.children);
+  tb.innerHTML="";tb.className="";var tr=document.createElement("tr");var td=document.createElement("td");td.colSpan=3;
+  td.style.padding="0 10px";var b=document.createElement("button");b.className="ozetBtn";b.innerHTML="DOKUN • TAM EKRAN ▸<small></small>";b.querySelector("small").textContent=ozet||"Dokun, tam ekran gör";
+  b.onclick=function(){tamAc(baslik,satirlar.map(function(x){return x.cloneNode(true)}));
+    // tiklanabilir satirlarin islevlerini geri bagla
+    var kop=$("tamIcerik").querySelectorAll("tr");satirlar.forEach(function(x,i){if(x.onclick&&kop[i]){kop[i].className="tik";kop[i].onclick=x.onclick}})};
+  td.appendChild(b);tr.appendChild(td);tb.appendChild(tr)}
 function eskiKopya(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(x){}a.remove()}
 function panelGoster(e){
   if(e&&e.kopyala){var km=e.kopyala;var li3=gunlukYaz("","📋 Gönderilecek mesaj: "+km);var b3=document.createElement("button");b3.textContent="KOPYALA";
@@ -348,6 +380,7 @@ function panelGoster(e){
       try{navigator.clipboard.writeText(km).then(ok,function(){eskiKopya(km);ok()})}catch(x){eskiKopya(km);ok()}};li3.lastChild.appendChild(b3);if(!e.panel)return}
   if(e&&e.ac){setTimeout(function(){if(window.Android&&Android.ac)Android.ac(e.ac);else window.open(e.ac,"_blank")},1200);if(!e.panel)return}
   if(!e||!e.panel)return;
+  if(e.panel==="harita"){jarvisHarita(e);return}
   clearTimeout(sagZaman);
   if(e.panel==="hava"){sagMod="hava";$("havaTablo").className="";$("sagBaslik").innerHTML='HAVA DURUMU • <span id="yer"></span>';durumYenile().then(havaYukle);return}
   sagMod=e.panel;var tb=$("havaTablo");tb.innerHTML="";tb.className="mini";var bas=$("sagBaslik");
@@ -368,6 +401,11 @@ function panelGoster(e){
     (e.veri||[]).slice(0,6).forEach(function(v){var tr=satir("<td>"+(v.kapak?"<img src='"+k(v.kapak)+"' style='width:34px;height:60px;object-fit:cover;border:1px solid #22d3ee55;border-radius:4px'>":"🎬")+"</td><td style='text-align:left;white-space:normal'>#"+k(v.run)+" "+k(v.ad).slice(0,24)+"</td><td class='"+(v.durum==="hazır"?"acik":v.durum==="hata"?"kapali":"bilinmez")+"'>"+k(v.durum)+(v.puan?"<br><small>"+k(v.puan)+"/10</small>":"")+"</td>");
       if(v.video){tr.className="tik";tr.onclick=function(){linkAc(v.video)}}})}
   if(!tb.children.length)satir("<td class='bos'>Gösterilecek bir şey yok</td>");
+  var ozetler={saglik:function(){var v=e.veri||[];var bz=v.filter(function(x){return x.durum==="bozuk"}).length,yk=v.filter(function(x){return x.durum==="yok"}).length;return (bz?bz+" bozuk, ":"")+(v.length-bz-yk)+" çalışıyor"+(yk?", "+yk+" eklenmemiş":"")},
+    deprem:function(){var d=(e.veri||[])[0];return d?"Son: "+(+d.buyukluk).toFixed(1)+" • "+String(d.yer).slice(0,24):""},
+    yerler:function(){return (e.veri||[]).length+" yer bulundu"},isler:function(){return (e.veri&&e.veri.isler||[]).length+" iş"},
+    plan:function(){return (e.veri||[]).length+" madde"},kurgular:function(){var v=e.veri||[];return v.length?"#"+v[0].run+" "+v[0].durum:""}};
+  var bas0=bas.textContent;bas.textContent=bas0.split("•")[0].trim();panelSadelestir(bas0,ozetler[e.panel]?ozetler[e.panel]():"");
   sagZaman=setTimeout(function(){panelGoster({panel:"hava"})},4*60*1000);
 }
 
@@ -381,8 +419,43 @@ async function hava(lat,lon,yer){
     var tb=$("havaTablo");tb.innerHTML="";
     j.daily.time.forEach(function(t,i){var d=new Date(t+"T12:00");var tr=document.createElement("tr");
       tr.innerHTML="<td>"+(i===0?"BUGÜN":i===1?"YARIN":GUN[d.getDay()])+"</td><td>"+ikon(j.daily.weathercode[i])+"</td><td>"+Math.round(j.daily.temperature_2m_max[i])+"° / "+Math.round(j.daily.temperature_2m_min[i])+"°</td>";tb.appendChild(tr)});
+    if(sagMod==="hava"){$("sagBaslik").innerHTML='HAVA DURUMU • <span id="yer"></span>';if(yer)$("yer").textContent=yer;
+      panelSadelestir("HAVA DURUMU"+(yer?" • "+yer:""),"Bugün "+ikon(j.daily.weathercode[0])+" "+Math.round(j.daily.temperature_2m_max[0])+"° / "+Math.round(j.daily.temperature_2m_min[0])+"° • 5 günlük tahmin için dokun");return}
     if(yer)$("yer").textContent=yer;
   }catch(e){$("havaTablo").innerHTML='<tr><td class="bos">Hava alınamadı</td></tr>'}
+}
+// ---------------- Jarvis haritasi (OpenStreetMap + Leaflet, Jarvis renkleri) ----------------
+var TURLER={restaurant:"Restoran",cafe:"Kafe",fast_food:"Fast food",bar:"Bar",pub:"Pub",pharmacy:"Eczane",hospital:"Hastane",clinic:"Klinik",dentist:"Diş hekimi",doctors:"Doktor",bank:"Banka",atm:"ATM",fuel:"Benzinlik",
+  supermarket:"Süpermarket",convenience:"Market",bakery:"Fırın",butcher:"Kasap",clothes:"Giyim",shoes:"Ayakkabı",mobile_phone:"Telefoncu",electronics:"Elektronik",hairdresser:"Kuaför",beauty:"Güzellik",
+  hotel:"Otel",guest_house:"Pansiyon",hostel:"Hostel",apartment:"Apart",attraction:"Gezilecek yer",museum:"Müze",viewpoint:"Manzara",mosque:"Cami",place_of_worship:"İbadet yeri",school:"Okul",
+  police:"Polis",post_office:"PTT",car_repair:"Oto tamir",car_wash:"Oto yıkama",jewelry:"Kuyumcu",furniture:"Mobilya",hardware:"Hırdavat",kiosk:"Büfe",greengrocer:"Manav",ice_cream:"Dondurmacı",
+  gym:"Spor salonu",fitness_centre:"Spor salonu",parking:"Otopark",bus_station:"Otogar",taxi:"Taksi",veterinary:"Veteriner",optician:"Gözlükçü",books:"Kitapçı",gift:"Hediyelik",travel_agency:"Seyahat acentesi"};
+function leafletYukle(){return new Promise(function(ok,hata){if(window.L)return ok();var c=document.createElement("link");c.rel="stylesheet";c.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";document.head.appendChild(c);
+  var s=document.createElement("script");s.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";s.onload=ok;s.onerror=hata;document.head.appendChild(s)})}
+function yerTuru(t){var k=t.amenity||t.shop||t.tourism||t.leisure||t.craft||t.office||"";return TURLER[k]||(k?k.replace(/_/g," "):"İşletme")}
+async function jarvisHarita(e){
+  tamAc("HARİTA • "+((konumBilgi&&konumBilgi.ad||"MANAVGAT").split(",")[0].toLocaleUpperCase("tr")));var ic=$("tamIcerik");ic.className="harita";
+  ic.innerHTML='<div id="haritaKutu"></div><div class="hrtAlt"><button data-f="hepsi" class="secili">TÜMÜ</button><button data-f="yeme">YEME-İÇME</button><button data-f="market">MARKET</button><button data-f="saglik">SAĞLIK</button><button data-f="konaklama">OTEL</button><button id="buradaTara">BU BÖLGEYİ TARA</button></div>';
+  try{await leafletYukle()}catch(x){ic.innerHTML='<p class="bos">Harita yüklenemedi, internet bağlantını kontrol et.</p>';return}
+  var lat=e.lat||(konumBilgi&&konumBilgi.lat)||36.787,lon=e.lon||(konumBilgi&&konumBilgi.lon)||31.443;
+  var h=L.map("haritaKutu",{zoomControl:false,attributionControl:true}).setView([lat,lon],e.zoom||15);window._harita=h;
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:"© OpenStreetMap © CARTO"}).addTo(h);
+  var ben=L.marker([lat,lon],{icon:L.divIcon({className:"",html:'<div class="benim"></div>',iconSize:[16,16]})}).addTo(h).bindPopup(e.isaret?"<b>"+String(e.isaret).replace(/[<>&]/g,"")+"</b>":"<b>Buradasın</b>");
+  if(e.isaret)ben.openPopup();
+  if(!e.lat&&navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){ben.setLatLng([p.coords.latitude,p.coords.longitude]);h.setView([p.coords.latitude,p.coords.longitude],16);tara()},function(){},{timeout:6000});
+  var katman=L.layerGroup().addTo(h),filtre="hepsi",son=[];
+  var GRUP={yeme:/restaurant|cafe|fast_food|bar|pub|bakery|ice_cream/,market:/supermarket|convenience|greengrocer|butcher|kiosk|bakery/,saglik:/pharmacy|hospital|clinic|dentist|doctors|veterinary/,konaklama:/hotel|guest_house|hostel|apartment/};
+  function ciz(){katman.clearLayers();son.forEach(function(y){var k=y.t.amenity||y.t.shop||y.t.tourism||"";if(filtre!=="hepsi"&&!GRUP[filtre].test(k))return;
+    var m=L.circleMarker([y.lat,y.lon],{radius:6,color:"#22d3ee",weight:2,fillColor:"#0e7490",fillOpacity:.85}).addTo(katman);
+    var t=y.t,sa=t.opening_hours?"<br>🕒 "+t.opening_hours.replace(/[<>&]/g,""):"",tel=t.phone||t["contact:phone"];
+    m.bindPopup("<b>"+(t.name||"İsimsiz").replace(/[<>&]/g,"")+"</b><br>"+yerTuru(t)+(t.cuisine?" • "+t.cuisine.replace(/[<>&;_]/g," "):"")+sa+(tel?"<br>📞 "+String(tel).replace(/[<>&]/g,""):"")+
+      '<br><a href="#" onclick="googleHarita('+y.lat+','+y.lon+');return false">Yol tarifi ↗</a>')})}
+  async function tara(){var b=h.getBounds(),q='[out:json][timeout:20];(node["name"]["amenity"]('+b.getSouth()+','+b.getWest()+','+b.getNorth()+','+b.getEast()+');node["name"]["shop"]('+b.getSouth()+','+b.getWest()+','+b.getNorth()+','+b.getEast()+');node["name"]["tourism"]('+b.getSouth()+','+b.getWest()+','+b.getNorth()+','+b.getEast()+'););out 250;';
+    var bt=$("buradaTara");if(bt)bt.textContent="TARANIYOR...";
+    try{var j=await (await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)})).json();son=(j.elements||[]).map(function(x){return{lat:x.lat,lon:x.lon,t:x.tags||{}}});ciz();if(bt)bt.textContent=son.length+" YER • TEKRAR TARA"}
+    catch(x){if(bt)bt.textContent="TARANAMADI • TEKRAR"}}
+  ic.querySelectorAll(".hrtAlt button[data-f]").forEach(function(b){b.onclick=function(){filtre=b.dataset.f;ic.querySelectorAll(".hrtAlt button[data-f]").forEach(function(x){x.classList.toggle("secili",x===b)});ciz()}});
+  $("buradaTara").onclick=tara;setTimeout(function(){h.invalidateSize();tara()},250);
 }
 var konumBilgi=null;
 function havaYukle(){if(konumBilgi)hava(konumBilgi.lat,konumBilgi.lon,konumBilgi.ad.split(",")[0].toLocaleUpperCase("tr"));else hava(36.79,31.44,"MANAVGAT")}
