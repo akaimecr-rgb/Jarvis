@@ -1192,7 +1192,7 @@ async function haftalikRapor(env) {
   const isler = await kvOku(env, "isler", []);
   const ham = [
     (await gelirOzeti(env).catch(() => ({ metin: "" }))).metin,
-    "Bu hafta isler: " + isler.filter((i) => Date.now() - (i.zaman || 0) < 7 * 864e5).map((i) => `${i.musteri}: ${i.aciklama || ""} (${i.durum})`).join("; "),
+    "Bu hafta isler: " + isler.filter((i) => Date.now() - (i.eklendi || 0) < 7 * 864e5).map((i) => `${i.musteri}: ${i.aciklama || ""} (${i.durum})`).join("; "),
     "Jarvis gunlugu: " + g.map((x) => x.metin).slice(-60).join("; "),
   ].join("\n");
   const sistem = SISTEM_TEMEL + "\n\nEren icin kisa bir HAFTALIK RAPOR yaz (Turkce, en fazla 8 cumle): bu hafta kac video/is yapildi, ne kadar kazanildi ve aylik hedefe ne kadar kaldi, " +
