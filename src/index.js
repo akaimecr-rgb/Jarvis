@@ -493,6 +493,7 @@ async function kurguDurumu(env, kok) {
         await kvYaz(env, "son_rapor_kurgu", { run: r.run_number, ...rp });
         raporMetin = ` Kalite puanı ${rp.puan}/10.` + ((rp.sorunlar || []).length ? " Dikkat: " + rp.sorunlar.slice(0, 3).join("; ") + "." : "") +
           (rp.baslik ? ` Başlık önerim: "${rp.baslik}".` : "") +
+          ((rp.alternatifler || []).length ? " Alternatif başlık/hook'lar: " + rp.alternatifler.slice(0, 3).map((x, i) => `${i + 1}) ${x.baslik}${x.hook ? " / " + x.hook : ""}`).join("; ") + ". Birini beğenirse 'revize' ile hook'u değiştirebilirim." : "") +
           (rp.teslim_mesaji_en ? ` Müşteriye teslim mesajı taslağı: "${rp.teslim_mesaji_en}" (Türkçesi: ${rp.teslim_mesaji_tr || "-"}).` : "");
       }
     } catch (e) {}
