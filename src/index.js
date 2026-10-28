@@ -302,7 +302,9 @@ async function releaseDosya(env, run, ad) {
   const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${run}`);
   const a = (rel.assets || []).find((x) => x.name === ad);
   if (!a) throw new Error(ad + " yok (eski kurgu olabilir)");
-  const r = await fetch(a.url, { headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" } });
+  let r = await fetch(a.url, { headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" }, redirect: "manual" });
+  const yer = r.headers.get("location");
+  if (yer) r = await fetch(yer);
   if (!r.ok) throw new Error(ad + " indirilemedi " + r.status);
   return r.text();
 }
