@@ -106,3 +106,5 @@
 - Jarvis: hafiza (listele/unut), gece kendi kendine öğrenme (sabah anlatır), gece hafıza yedeği (remotion-sablonlar 'yedek' dalı).
 - Kurgu: 3-2-1 geri sayım, sonda TAKİP ET, konuşurken müzik kısma, karanlık videoda otomatik renk, dil algılama + "İngilizce altyazı" talimatı, 3 alternatif başlık/hook, "kare"/"yatay" ek formatlar, parcala (uzun videodan 1-6 Short, CI'da test edildi).
 - Yapılmayan (APK gerekir): telefon ayarlarını sesle değiştirme, internetsiz yerel mod.
+- Telefon/laptop kontrolü: youtube_ara (YouTube'da arar), telefonda_ac (link/uygulama açar), laptop_komut (laptop programı açıkken link/uygulama açar, video indirir, panoya yazar). "YouTube'da Baykalem'in son videosunu bul, stil olarak kullan" → youtube_ara + stil_cikar.
+- Ses motorları sırası: ElevenLabs → Azure (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION; ücretsiz 500 bin karakter/ay, tr-TR-AhmetNeural) → Cartesia (CARTESIA_API_KEY + CARTESIA_VOICE_ID) → Gemini → Google çeviri sesi.
