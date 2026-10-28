@@ -211,10 +211,10 @@ async function konus(t){
   var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<160)par[par.length-1]=s+" "+c;else par.push(c)});
   var istekler=par.map(function(p){return Promise.race([sesAl(p).catch(function(e){return null}),bekle(7000).then(function(){return null})])});
   var ilk=await istekler[0];
-  if(!ilk){yedekSesKadar=Date.now()+10*60*1000;if(benim===sesSirasi)await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
+  if(!ilk){yedekSesKadar=Date.now()+60*1000;if(benim===sesSirasi)await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
   await cal(ilk);
   for(var j=1;j<istekler.length;j++){if(benim!==sesSirasi)return;var b=await istekler[j];
-    if(!b){yedekSesKadar=Date.now()+10*60*1000;await tarayiciSesi(par.slice(j).join(" "));break}
+    if(!b){yedekSesKadar=Date.now()+60*1000;await tarayiciSesi(par.slice(j).join(" "));break}
     await cal(b)}
   if(benim===sesSirasi)durum("hazir");
 }

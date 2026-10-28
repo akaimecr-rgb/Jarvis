@@ -728,18 +728,40 @@ function wavYap(pcm, hz) {
 }
 
 async function sesUret(env, metin) {
-  if (env.ELEVENLABS_API_KEY) {
-    try { return { veri: await elevenSes(env, metin), tur: "audio/mpeg" }; } catch (e) { /* Gemini'ye gec */ }
+  // 1) ElevenLabs (kota dolduysa 6 saat hic denenmez, bekletmez)
+  if (env.ELEVENLABS_API_KEY && Date.now() > (await kvOku(env, "eleven_kapali_kadar", 0))) {
+    try { return { veri: await elevenSes(env, metin), tur: "audio/mpeg" }; }
+    catch (e) { if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "eleven_kapali_kadar", Date.now() + 6 * 3600 * 1000); }
   }
-  const kapali = await kvOku(env, "tts_kapali_kadar", 0);
-  if (Date.now() < kapali) throw new Error("TTS kotasi dolu");
-  const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
-  let sonHata;
-  for (const model of modeller) {
-    try { return { veri: await sesUretModel(env, metin, model), tur: "audio/wav" }; } catch (e) { sonHata = e; }
+  // 2) Gemini TTS
+  if (Date.now() > (await kvOku(env, "tts_kapali_kadar", 0))) {
+    const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
+    let sonHata;
+    for (const model of modeller) {
+      try { return { veri: await sesUretModel(env, metin, model), tur: "audio/wav" }; } catch (e) { sonHata = e; }
+    }
+    if (/429|403|400/.test(String(sonHata))) await kvYaz(env, "tts_kapali_kadar", Date.now() + 30 * 60 * 1000);
   }
-  if (String(sonHata).includes("429")) await kvYaz(env, "tts_kapali_kadar", Date.now() + 30 * 60 * 1000);
-  throw sonHata;
+  // 3) Ucretsiz yedek: Google Ceviri sesi (kotasiz, telefonun ses motoruna gerek yok)
+  return { veri: await googleSes(metin), tur: "audio/mpeg" };
+}
+
+async function googleSes(metin) {
+  const parca = [];
+  let kalan = metin.replace(/\s+/g, " ").trim();
+  while (kalan.length) {
+    let k = kalan.slice(0, 190);
+    if (kalan.length > 190) { const i = Math.max(k.lastIndexOf(". "), k.lastIndexOf(", "), k.lastIndexOf(" ")); if (i > 60) k = k.slice(0, i + 1); }
+    parca.push(k.trim()); kalan = kalan.slice(k.length).trim();
+  }
+  const sesler = await Promise.all(parca.filter(Boolean).slice(0, 12).map(async (p) => {
+    const r = await fetch("https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=tr&q=" + encodeURIComponent(p), { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!r.ok) throw new Error("Yedek ses " + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  }));
+  const toplam = new Uint8Array(sesler.reduce((t, x) => t + x.length, 0));
+  let o = 0; for (const x of sesler) { toplam.set(x, o); o += x.length; }
+  return toplam;
 }
 
 async function elevenSes(env, metin) {
