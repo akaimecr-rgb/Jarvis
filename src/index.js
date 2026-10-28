@@ -232,7 +232,46 @@ async function kendiniGelistir(env) {
   return "Kendimi geliştirmek için bir önerim var. " + (oneri.neden || "") + " " + ozet;
 }
 
+// ---------------- Claude Code ile kod degisikligi (GitHub Actions, Eren'in Claude aboneligi) ----------------
+async function claudeKod(env, istek) {
+  await gh(env, `/repos/${REPO}/actions/workflows/claude-kod.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { istek: String(istek).slice(0, 1500) } }) });
+  await kvYaz(env, "claude_kod_bekliyor", { istek, zaman: Date.now() });
+  await gunlukEkle(env, "Claude Code'a kod değişikliği verdim: " + String(istek).slice(0, 60));
+  return "İsteği Claude Code'a verdim. Bulutta kodu düzenleyip kontrol edecek, genelde 3-10 dakika sürer. Bitince haber veririm; 'onayla' demeden hiçbir şey değişmez.";
+}
+async function claudeKodDurumu(env) {
+  const j = await gh(env, `/repos/${REPO}/actions/workflows/claude-kod.yml/runs?per_page=1`);
+  const r = j.workflow_runs && j.workflow_runs[0];
+  if (!r) return { metin: "Henuz Claude Code'a is verilmedi." };
+  if (r.status !== "completed") return { metin: "Claude Code hala calisiyor." };
+  let k = null;
+  try { k = JSON.parse(b64Coz((await gh(env, `/repos/${REPO}/contents/kod.json?ref=kod-log`)).content)); } catch (e) {}
+  if (!k || k.run !== r.run_number) return { metin: "Claude Code bitti ama sonucunu okuyamadim (" + r.conclusion + "). Abonelik anahtari (CLAUDE_CODE_OAUTH_TOKEN) eksik ya da limit dolmus olabilir.", link: r.html_url };
+  if (k.degisti === "evet") await kvYaz(env, "bekleyen_claude", { dal: k.dal, ozet: k.ozet, run: k.run });
+  return { metin: (k.degisti === "evet" ? "Claude Code degisikligi hazirladi: " : "Claude Code degisiklik yapmadi: ") + k.ozet + (k.degisti === "evet" ? " (" + (k.stat || "") + "). Eren 'onayla' derse uygularim." : ""), run: k.run, degisti: k.degisti };
+}
+async function claudeOnayla(env, b) {
+  const ana = await gh(env, `/repos/${REPO}/git/ref/heads/main`);
+  await kvYaz(env, "onceki_main", ana.object.sha);
+  await gh(env, `/repos/${REPO}/merges`, { method: "POST", body: JSON.stringify({ base: "main", head: b.dal, commit_message: "Jarvis: Claude degisikligi onaylandi (" + b.dal + ")" }) });
+  await kvYaz(env, "bekleyen_claude", null);
+  await gunlukEkle(env, "Claude'un hazırladığı değişikliği uyguladım: " + String(b.ozet).slice(0, 60));
+  return "Onayladım, Claude'un değişikliği uygulandı. 1-2 dakika içinde yayında. Beğenmezsen 'geri al' de.";
+}
+async function claudeGeriAl(env) {
+  const once = await kvOku(env, "onceki_main", null);
+  if (!once) return null;
+  const ana = await gh(env, `/repos/${REPO}/git/ref/heads/main`);
+  const eski = await gh(env, `/repos/${REPO}/git/commits/${once}`);
+  const yeni = await gh(env, `/repos/${REPO}/git/commits`, { method: "POST", body: JSON.stringify({ message: "Jarvis: Claude degisikligi geri alindi", tree: eski.tree.sha, parents: [ana.object.sha] }) });
+  await gh(env, `/repos/${REPO}/git/refs/heads/main`, { method: "PATCH", body: JSON.stringify({ sha: yeni.sha }) });
+  await kvYaz(env, "onceki_main", null);
+  return "Claude'un son değişikliğini geri aldım, eski hâline dönüyor.";
+}
+
 async function kodOnayla(env) {
+  const bc = await kvOku(env, "bekleyen_claude", null);
+  if (bc) return await claudeOnayla(env, bc);
   const b = await kvOku(env, "bekleyen_kod", null);
   if (!b) return "Bekleyen bir kod değişikliği yok.";
   const yol = b.yol || KOD_YOLU;
@@ -246,6 +285,8 @@ async function kodOnayla(env) {
 }
 
 async function geriAl(env) {
+  const cg = await claudeGeriAl(env).catch(() => null);
+  if (cg) return cg;
   const o = await kvOku(env, "onceki_kod", null);
   if (!o) return "Geri alınacak bir değişiklik bulamadım.";
   const yol = o.yol || KOD_YOLU;
@@ -1685,6 +1726,14 @@ async function saatlikIs(env) {
   }
   // 3g) Yeni ozellik kontrolleri (dolar, tarih, cikis havasi, teslim, sessiz musteri)
   try { await yeniSaatlik(env); } catch (e) {}
+  // 3h) Claude Code isi bitti mi?
+  try {
+    const bk = await kvOku(env, "claude_kod_bekliyor", null);
+    if (bk) {
+      const d = await claudeKodDurumu(env);
+      if (d.run) { await kvYaz(env, "claude_kod_bekliyor", null); await bildirimEkle(env, d.degisti === "evet" ? "Claude değişikliği hazırladı ✅" : "Claude Code bitti", String(d.metin).slice(0, 160), ""); }
+    }
+  } catch (e) {}
   // 3c) Pazar 23:00 haftalik rapor
   if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
     await kvYaz(env, "son_haftalik", z.tarih);
@@ -2073,6 +2122,7 @@ async function yeniSaatlik(env) {
 // ---------------- Arac secimi: her mesaja sadece ilgili araclar gider (Groq ucretsiz limitine sigmak icin) ----------------
 const ARAC_GRUPLARI = [
   [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir"]],
+  [/kod|ekran|arayüz|arayuz|tasarım|tasarim|renk|buton|panel|değiştir|degistir|ekle|özellik|ozellik|claude/i, ["claude_kod", "claude_kod_durumu"]],
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle", "parcala", "parca_durumu"]],
   [/parça|parca|uzun video|podcast|yayından|yayindan|böl|bol/i, ["parcala", "parca_durumu"]],
   [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
@@ -2163,6 +2213,8 @@ const ARACLAR = [
   ["is_guncelle", "Bir isin durumunu degistirir: teslim edildi, odendi veya iptal.", { is: "is no, musteri adi ya da aciklamadan bir kelime", durum: "teslim, odendi veya iptal", ucret: "odenen tutar (opsiyonel)" }],
   ["gelir_ozeti", "Bu ayki kazanci, aylik hedefe (800 dolar) ne kadar kaldigini, bekleyen odemeleri ve devam eden isleri verir; ekranda gosterir.", {}],
   ["portfolyo_ekle", "Eren'in herkese acik portfolyo sayfasina (basvurularda kullanilir) bir video ekler.", { baslik: "video basligi", link: "YouTube/TikTok linki ya da son kurgu icin 'son'", aciklama: "kisa aciklama (Ingilizce)", tur: "Shorts, Gaming, Long-form vb." }],
+  ["claude_kod", "Jarvis'in kodunda/arayuzunde bir degisikligi Claude Code'a (en iyi kodlayici, bulutta) yaptirir. Eren onaylamadan uygulanmaz. Buyuk ya da onemli degisikliklerde kendini_gelistir yerine bunu kullan.", { istek: "Eren'in istedigi degisiklik, ayrintili" }],
+  ["claude_kod_durumu", "Claude Code'a verilen isin durumunu ve ozetini getirir.", {}],
   ["kendini_gelistir", "Jarvis'in kendi kodunu degistirmesi icin degisiklik hazirlar (Eren onaylamadan uygulanmaz). Istenen isi yapacak aracin yoksa bunu kullan.",
     { istek: "eklenecek yetenek / yapilacak degisiklik, net ve Turkce" }],
 ].map(([name, description, alanlar]) => ({
@@ -2209,6 +2261,8 @@ async function aracCalistir(env, ad, a) {
       if (!/^https?:/.test(h)) return "HATA: acilacak link/uygulama anlasilmadi.";
       return { metin: "Telefonda aciyorum: " + h, link: h, ekran: { ac: h } };
     }
+    if (ad === "claude_kod") return env.CLAUDE_KOD === "kapali" ? "Claude Code kapali." : await claudeKod(env, a.istek);
+    if (ad === "claude_kod_durumu") return await claudeKodDurumu(env);
     if (ad === "harcama") return await harcama(env, a);
     if (ad === "haftalik_hedef") return await haftalikHedef(env, a);
     if (ad === "dolar_alarm") return await dolarAlarm(env, a);

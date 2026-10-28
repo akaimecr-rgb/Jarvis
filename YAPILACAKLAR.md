@@ -108,3 +108,4 @@
 - Yapılmayan (APK gerekir): telefon ayarlarını sesle değiştirme, internetsiz yerel mod.
 - Telefon/laptop kontrolü: youtube_ara (YouTube'da arar), telefonda_ac (link/uygulama açar), laptop_komut (laptop programı açıkken link/uygulama açar, video indirir, panoya yazar). "YouTube'da Baykalem'in son videosunu bul, stil olarak kullan" → youtube_ara + stil_cikar.
 - Ses motorları sırası: ElevenLabs → Azure (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION; ücretsiz 500 bin karakter/ay, tr-TR-AhmetNeural) → Cartesia (CARTESIA_API_KEY + CARTESIA_VOICE_ID) → Gemini → Google çeviri sesi.
+- Claude Code: claude_kod aracı → .github/workflows/claude-kod.yml (Eren'in Claude aboneliği, CLAUDE_CODE_OAUTH_TOKEN). Değişiklik claude/kod-N dalına gider, "onayla" → main'e birleşir, "geri al" → önceki hâle döner. Bitince saatlik kontrol bildirir.
