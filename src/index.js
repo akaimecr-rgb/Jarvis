@@ -905,12 +905,15 @@ async function azureSes(env, metin) {
 
 async function cartesiaSes(env, metin) {
   if (!env.CARTESIA_VOICE_ID) throw new Error("CARTESIA_VOICE_ID yok");
-  const r = await fetch("https://api.cartesia.ai/tts/bytes", {
+  const iste = (kontrollu) => fetch("https://api.cartesia.ai/tts/bytes", {
     method: "POST",
     headers: { "X-API-Key": env.CARTESIA_API_KEY, "Cartesia-Version": env.CARTESIA_SURUM || "2025-04-16", "content-type": "application/json" },
-    body: JSON.stringify({ model_id: env.CARTESIA_MODEL || "sonic-2", transcript: metin, voice: { mode: "id", id: env.CARTESIA_VOICE_ID }, language: "tr",
+    body: JSON.stringify({ model_id: env.CARTESIA_MODEL || "sonic-2", transcript: metin, language: "tr",
+      voice: { mode: "id", id: env.CARTESIA_VOICE_ID, ...(kontrollu ? { __experimental_controls: { speed: env.CARTESIA_HIZ || "normal", emotion: (env.CARTESIA_DUYGU || "positivity:low").split(",") } } : {}) },
       output_format: { container: "mp3", sample_rate: 44100, bit_rate: 128000 } }),
   });
+  let r = await iste(true);
+  if (r.status === 400 || r.status === 422) r = await iste(false); // ses ayari desteklenmiyorsa ayarsiz dene
   if (!r.ok) throw new Error("Cartesia " + r.status);
   return new Uint8Array(await r.arrayBuffer());
 }
