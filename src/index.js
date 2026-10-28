@@ -953,11 +953,10 @@ function hayaletMi(metin) {
   return !t || (t.split(/\s+/).length <= 6 && HAYALET.test(t));
 }
 
-async function groqDinle(env, b64) {
-  const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+async function groqDinle(env, b64, tur = "wav") {
+  const bytes = typeof b64 === "string" ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) : b64;
   const form = new FormData();
-  form.append("file", new Blob([bytes], { type: "audio/wav" }), "ses.wav");
+  form.append("file", new Blob([bytes], { type: tur === "ogg" ? "audio/ogg" : "audio/wav" }), "ses." + tur);
   form.append("model", env.GROQ_DINLE_MODEL || "whisper-large-v3");
   form.append("language", "tr");
   form.append("response_format", "verbose_json");
@@ -1274,6 +1273,53 @@ function mesaideMi(env) {
   return sa >= b && sa < s;
 }
 const ONEMLI = /gkey|ödeme|odeme|bozuldu|hata|kurgu hazır|teslim|hatırlat/i;
+// ---------------- Telegram (ikinci arayuz: yazi + sesli mesaj) ----------------
+async function tgGizli(env) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("tg:" + (env.APP_SECRET || "")));
+  return Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
+}
+async function tg(env, yontem, govde) {
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${yontem}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(govde) });
+  return r.json();
+}
+async function tgGonder(env, metin, linkler = []) {
+  const chat = await kvOku(env, "telegram_chat", null);
+  if (!env.TELEGRAM_BOT_TOKEN || !chat) return;
+  const dugmeler = linkler.filter((l) => /^https:\/\//.test(l.url || "")).slice(0, 6).map((l) => [{ text: String(l.ad || "Aç").slice(0, 30), url: l.url }]);
+  await tg(env, "sendMessage", { chat_id: chat, text: String(metin).slice(0, 4000), disable_web_page_preview: true, ...(dugmeler.length ? { reply_markup: { inline_keyboard: dugmeler } } : {}) });
+}
+async function telegramIsle(env, u, kok) {
+  const m = u.message || u.edited_message;
+  if (!m) return;
+  const chat = m.chat.id;
+  const kayitli = await kvOku(env, "telegram_chat", null);
+  const yazi = (m.text || m.caption || "").trim();
+  if (!kayitli || kayitli !== chat) {
+    if (yazi === "/start " + env.APP_SECRET || yazi === env.APP_SECRET) {
+      await kvYaz(env, "telegram_chat", chat);
+      await tg(env, "sendMessage", { chat_id: chat, text: "Bağlandım Eren 👋 Bana buradan yazabilir ya da sesli mesaj atabilirsin. Bildirimler de buraya gelecek." });
+    } else await tg(env, "sendMessage", { chat_id: chat, text: "Jarvis şifresini yaz." });
+    return;
+  }
+  let metin = yazi;
+  if (m.voice || m.audio) {
+    const f = await tg(env, "getFile", { file_id: (m.voice || m.audio).file_id });
+    const ses = new Uint8Array(await (await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${f.result.file_path}`)).arrayBuffer());
+    metin = await groqDinle(env, ses, "ogg").catch(() => "");
+    if (!metin) { await tgGonder(env, "Sesini anlayamadım, tekrar dener misin?"); return; }
+  }
+  if (m.video || m.document?.mime_type?.startsWith("video")) {
+    await tgGonder(env, "Videoyu aldım ama Telegram botları en fazla 20 MB indirebiliyor. Büyük videoları telefondan 'Paylaş > Jarvis'e gönder' ile Drive'a at, sonra bana 'son videoyu kurgula' yaz.");
+    if (!metin) return;
+  }
+  if (!metin) return;
+  await tg(env, "sendChatAction", { chat_id: chat, action: "typing" });
+  env.__kok = kok;
+  const c = await sohbetEt(env, metin);
+  const linkler = [...(c.link ? [{ ad: "Aç", url: c.link }] : []), ...(c.linkler || [])];
+  await tgGonder(env, (m.voice ? "🎙 " + metin + "\n\n" : "") + (c.cevap || "..."), linkler);
+}
+
 async function bildirimEkle(env, baslik, metin, link) {
   if (mesaideMi(env) && !ONEMLI.test(baslik + " " + metin) && !(await kvOku(env, "mesai_kapali", false))) {
     const b = await kvOku(env, "bekleyen_bildirim", []);
@@ -1281,6 +1327,7 @@ async function bildirimEkle(env, baslik, metin, link) {
     await kvYaz(env, "bekleyen_bildirim", b.slice(-20));
     return;
   }
+  try { await tgGonder(env, "🔔 " + baslik + (metin ? "\n" + metin : ""), link ? [{ ad: "Aç", url: link }] : []); } catch (e) {}
   const l = await kvOku(env, "bildirimler", []);
   l.push({ id: crypto.randomUUID().slice(0, 8), zaman: Date.now(), baslik, metin, link: link || "" });
   await kvYaz(env, "bildirimler", l.slice(-30));
@@ -1909,7 +1956,7 @@ export default {
     })());
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(SAYFA, { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -1933,6 +1980,19 @@ export default {
       } catch (e) {
         return Response.json({ hata: e.message }, { status: 502 });
       }
+    }
+    if (request.method === "POST" && url.pathname === "/telegram") {
+      if (!env.TELEGRAM_BOT_TOKEN || request.headers.get("x-telegram-bot-api-secret-token") !== (await tgGizli(env))) return new Response("x", { status: 401 });
+      const u = await request.json();
+      ctx.waitUntil(telegramIsle(env, u, url.origin).catch((e) => tgGonder(env, "Hata: " + e.message)));
+      return new Response("ok");
+    }
+    if (request.method === "GET" && url.pathname === "/telegram-kur") {
+      if (!env.TELEGRAM_BOT_TOKEN) return new Response("TELEGRAM_BOT_TOKEN eklenmemis.", { status: 400 });
+      if (url.searchParams.get("s") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      const j = await tg(env, "setWebhook", { url: url.origin + "/telegram", secret_token: await tgGizli(env), allowed_updates: ["message", "edited_message"] });
+      const bot = await tg(env, "getMe", {});
+      return new Response(j.ok ? `Tamam! Telegram'da @${bot.result?.username} botunu ac ve Jarvis sifreni yaz.` : "Olmadi: " + JSON.stringify(j), { headers: { "content-type": "text/plain; charset=utf-8" } });
     }
     if (request.method === "GET" && url.pathname === "/portfolyo") {
       return new Response(await portfolyoSayfa(env), { headers: { "content-type": "text/html; charset=utf-8" } });
