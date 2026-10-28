@@ -1881,6 +1881,41 @@ function faturaSayfa(f) {
 <p><span class="k">Payment method:</span> ${e(f.odeme)}</p><p class="k">Thank you for your business!</p><button onclick="print()">Save as PDF / Print</button></body></html>`;
 }
 
+// --- YouTube kanal istatistigi (ucretsiz YOUTUBE_API_KEY) ---
+async function kanalIstatistik(env, a = {}) {
+  if (!env.YOUTUBE_API_KEY) return "HATA: YOUTUBE_API_KEY yok (Google Cloud Console'dan ucretsiz, 'YouTube Data API v3' acilip alinir).";
+  let k = String(a.kanal || (await kvOku(env, "musteri_kartlari", {})).gkey?.kanal || "").trim();
+  if (!k) return "HATA: kanal adi ya da @handle gerekli (ornek @gkey). Musteri kartina kanal eklersen otomatik bakarim.";
+  const handle = (k.match(/@[\w.-]+/) || [])[0];
+  const idm = k.match(/channel\/(UC[\w-]+)/);
+  const q = idm ? "id=" + idm[1] : handle ? "forHandle=" + encodeURIComponent(handle) : "forHandle=" + encodeURIComponent("@" + k.replace(/\s+/g, ""));
+  const j = await (await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet,contentDetails&${q}&key=${env.YOUTUBE_API_KEY}`)).json();
+  const c = j.items?.[0];
+  if (!c) return "HATA: kanal bulunamadi (" + k + ").";
+  const st = c.statistics;
+  const once = await kvOku(env, "kanal_" + c.id, null);
+  await kvYaz(env, "kanal_" + c.id, { zaman: Date.now(), abone: +st.subscriberCount, izlenme: +st.viewCount });
+  const v = await (await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=5&playlistId=${c.contentDetails.relatedPlaylists.uploads}&key=${env.YOUTUBE_API_KEY}`)).json();
+  const ids = (v.items || []).map((x) => x.contentDetails.videoId).join(",");
+  let sonlar = [];
+  if (ids) {
+    const d = await (await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${ids}&key=${env.YOUTUBE_API_KEY}`)).json();
+    sonlar = (d.items || []).map((x) => `"${x.snippet.title.slice(0, 40)}" ${(+x.statistics.viewCount).toLocaleString("tr-TR")} izlenme`);
+  }
+  const fark = once ? ` (son bakistan beri +${(+st.subscriberCount - once.abone).toLocaleString("tr-TR")} abone, +${(+st.viewCount - once.izlenme).toLocaleString("tr-TR")} izlenme)` : "";
+  return `${c.snippet.title}: ${(+st.subscriberCount).toLocaleString("tr-TR")} abone, ${(+st.viewCount).toLocaleString("tr-TR")} toplam izlenme, ${st.videoCount} video${fark}. Son videolar: ${sonlar.join("; ")}.`;
+}
+
+// --- Musteriye haftalik is raporu taslagi ---
+async function musteriRaporu(env, a = {}) {
+  const ad = String(a.musteri || "GKey").toLowerCase();
+  const isler = (await kvOku(env, "isler", [])).filter((i) => i.musteri.toLowerCase() === ad && Date.now() - (i.eklendi || 0) < 7 * 864e5);
+  if (!isler.length) return "Bu hafta " + a.musteri + " icin kayitli is yok. Once is_ekle ile isleri kaydetmek lazim.";
+  const liste = isler.map((i) => `- ${i.aciklama} (${i.durum === "teslim" || i.odendi ? "delivered" : "in progress"})`).join("\n");
+  const tr = isler.map((i) => `- ${i.aciklama} (${i.durum === "teslim" || i.odendi ? "teslim edildi" : "devam ediyor"})`).join("\n");
+  return `Musteriye haftalik rapor taslagi (Eren 'gonder' demeden gonderme). EN: "Hey! Quick weekly update:\n${liste}\nLet me know if you want any changes or have new videos for next week!" | TR: "Selam! Haftalik kisa ozet:\n${tr}\nDegisiklik istersen ya da gelecek hafta icin yeni video varsa haber ver!"`;
+}
+
 // --- Saatlik kontroller (yeni ozellikler) ---
 async function yeniSaatlik(env) {
   const z = trSimdi();
@@ -1894,6 +1929,14 @@ async function yeniSaatlik(env) {
         await bildirimEkle(env, `Dolar alarmı: ${kur.toFixed(2)} TL 💵`, `Belirlediğin ${al.kur} TL seviyesi ${al.yon === "ustu" ? "geçildi" : "altına inildi"}.`, "");
         await kvSil(env, "dolar_alarm");
       }
+    }
+  } catch (e) {}
+  // Mola hatirlatici (acikken; mesai disi, 10-12 ve 23 arasi, 2 saatte bir)
+  try {
+    if (await kvOku(env, "mola_acik", false)) {
+      const s = +sa;
+      if (!mesaideMi(env) && [10, 12, 23].includes(s) && (await kvOku(env, "son_mola", "")) !== z.tarih + sa)
+        { await kvYaz(env, "son_mola", z.tarih + sa); await bildirimEkle(env, ["Su iç 💧", "Gözlerine 1 dk mola ver 👀", "Kalk biraz esne 🧘"][s % 3], "Ekrandan bir dakika uzaklaş.", ""); }
     }
   } catch (e) {}
   // Onemli tarihler (09:00)
@@ -1957,7 +2000,10 @@ const ARAC_GRUPLARI = [
   [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
   [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price|fatura|invoice/i, ["musteri_kart", "teklif_hesapla", "fatura"]],
   [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
-  [/hedef|hafta/i, ["haftalik_hedef"]],
+  [/hedef|hafta/i, ["haftalik_hedef", "musteri_raporu"]],
+  [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik"]],
+  [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
+  [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
   [/dolar|kur|euro|döviz|doviz/i, ["dolar_alarm"]],
   [/doğum|dogum|yıldönüm|yildonum|önemli tarih|onemli tarih|bayram/i, ["onemli_tarih"]],
   [/uyku|uyudum|uyuyor|yorgun|kaç saat|kac saat/i, ["uyku_ozeti"]],
@@ -1981,6 +2027,9 @@ const ARACLAR = [
   ["musteri_kart", "Musteri kartini gosterir/gunceller (fiyat, stil, kanal, iletisim, odeme yontemi, not); toplam is, odenen ve bekleyen para, son mesaj. Ad verilmezse tum musteriler.", { ad: "musteri adi", fiyat: "ornek '12$/short' (opsiyonel)", stil: "opsiyonel", kanal: "YouTube kanali (opsiyonel)", iletisim: "Discord vb. (opsiyonel)", odeme: "Payoneer vb. (opsiyonel)", not: "eklenecek not (opsiyonel)" }],
   ["teklif_hesapla", "Video kurgu fiyat teklifi hesaplar ve musteriye Ingilizce + Turkce teklif mesaji hazirlar.", { adet: "video sayisi", sure_sn: "her videonun saniyesi", tur: "shorts veya uzun", acil: "acil mi (evet/hayir)", ekstra: "thumbnail vb. (opsiyonel)" }],
   ["fatura", "Musteriye Ingilizce fatura (invoice) sayfasi olusturur; odenmemis isleri kalem yapar ya da tek kalem verilir. Link PDF olarak da kaydedilebilir.", { musteri: "musteri adi", kalem: "tek kalem aciklamasi (opsiyonel)", tutar: "USD (opsiyonel)", odeme: "Payoneer vb. (opsiyonel)" }],
+  ["kanal_istatistik", "Bir YouTube kanalinin (varsayilan GKey) abone/izlenme istatistigini ve son videolarin izlenmelerini getirir, son bakistan beri farki soyler.", { kanal: "@handle ya da kanal linki (opsiyonel)" }],
+  ["musteri_raporu", "Musteriye bu haftaki isleri anlatan kisa Ingilizce + Turkce rapor mesaji taslagi hazirlar (gondermez).", { musteri: "musteri adi (varsayilan GKey)" }],
+  ["mola", "Mesai disinda su/goz/esneme mola hatirlaticisini acar ya da kapatir.", { acik: "true veya false" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
   ["dolar_alarm", "Dolar/TL kurunu soyler; kur verilirse o seviye gecilince bildirim kurar.", { kur: "TL seviyesi (opsiyonel)" }],
@@ -2058,6 +2107,9 @@ async function aracCalistir(env, ad, a) {
     if (ad === "musteri_kart") return await musteriKart(env, a);
     if (ad === "teklif_hesapla") return teklifHesapla(a);
     if (ad === "fatura") return await faturaOlustur(env, a);
+    if (ad === "kanal_istatistik") return await kanalIstatistik(env, a);
+    if (ad === "musteri_raporu") return await musteriRaporu(env, a);
+    if (ad === "mola") { const ac = !/false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mola_acik", ac); return ac ? "Mola hatırlatıcısı açık (mesai dışında 10, 12 ve 23'te)." : "Mola hatırlatıcısı kapalı."; }
     if (ad === "harcama") return await harcama(env, a);
     if (ad === "haftalik_hedef") return await haftalikHedef(env, a);
     if (ad === "dolar_alarm") return await dolarAlarm(env, a);
