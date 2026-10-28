@@ -45,7 +45,7 @@ ul.liste li b{color:var(--cyan);font-weight:600;min-width:42px}
 #tamIcerik table{width:100%;border-collapse:collapse}#tamIcerik td{padding:10px 8px;border-bottom:1px solid rgba(34,211,238,.12);font-size:15px;color:var(--text);vertical-align:top}
 #tamIcerik td small{color:var(--muted);font-size:12px}#tamIcerik td.acik{color:#4ade80}#tamIcerik td.kapali{color:#f87171}#tamIcerik td.bilinmez{color:var(--muted)}#tamIcerik tr.tik{cursor:pointer}
 #haritaKutu{position:absolute;inset:0}#tamIcerik.harita{position:relative;padding:0;margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-#haritaKutu .leaflet-tile-pane{filter:hue-rotate(150deg) saturate(1.6) brightness(1.05)}
+#haritaKutu .leaflet-tile-pane{filter:invert(1) hue-rotate(185deg) saturate(.55) brightness(.8) contrast(1.15)}
 #haritaKutu .leaflet-container,#haritaKutu{background:#02070d}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#061824!important;color:var(--text)!important;border:1px solid var(--line)}
 .leaflet-popup-content{font:13px/1.45 system-ui,sans-serif;margin:10px 12px!important}.leaflet-popup-content b{color:var(--cyan);font-family:Rajdhani,sans-serif;font-size:16px;letter-spacing:.04em}
@@ -439,7 +439,7 @@ async function jarvisHarita(e){
   try{await leafletYukle()}catch(x){ic.innerHTML='<p class="bos">Harita yüklenemedi, internet bağlantını kontrol et.</p>';return}
   var lat=e.lat||(konumBilgi&&konumBilgi.lat)||36.787,lon=e.lon||(konumBilgi&&konumBilgi.lon)||31.443;
   var h=L.map("haritaKutu",{zoomControl:false,attributionControl:true}).setView([lat,lon],e.zoom||15);window._harita=h;
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:"© OpenStreetMap © CARTO"}).addTo(h);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(h);
   var ben=L.marker([lat,lon],{icon:L.divIcon({className:"",html:'<div class="benim"></div>',iconSize:[16,16]})}).addTo(h).bindPopup(e.isaret?"<b>"+String(e.isaret).replace(/[<>&]/g,"")+"</b>":"<b>Buradasın</b>");
   if(e.isaret)ben.openPopup();
   if(!e.lat&&navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){ben.setLatLng([p.coords.latitude,p.coords.longitude]);h.setView([p.coords.latitude,p.coords.longitude],16);tara()},function(){},{timeout:6000});

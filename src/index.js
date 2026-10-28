@@ -917,17 +917,25 @@ async function azureSes(env, metin) {
 
 async function cartesiaSes(env, metin) {
   if (!env.CARTESIA_VOICE_ID) throw new Error("CARTESIA_VOICE_ID yok");
-  const iste = (kontrollu) => fetch("https://api.cartesia.ai/tts/bytes", {
+  const iste = (model, kontrollu, dil) => fetch("https://api.cartesia.ai/tts/bytes", {
     method: "POST", signal: AbortSignal.timeout(+env.CARTESIA_SURE || 7000),
     headers: { "X-API-Key": env.CARTESIA_API_KEY, "Cartesia-Version": env.CARTESIA_SURUM || "2025-04-16", "content-type": "application/json" },
-    body: JSON.stringify({ model_id: env.CARTESIA_MODEL || "sonic-2", transcript: metin, language: "tr",
-      voice: { mode: "id", id: env.CARTESIA_VOICE_ID, ...(kontrollu ? { __experimental_controls: { speed: env.CARTESIA_HIZ || "normal", emotion: (env.CARTESIA_DUYGU || "positivity:low").split(",") } } : {}) },
+    body: JSON.stringify({ model_id: model, transcript: metin, ...(dil ? { language: "tr" } : {}),
+      voice: { mode: "id", id: env.CARTESIA_VOICE_ID.trim(), ...(kontrollu ? { __experimental_controls: { speed: env.CARTESIA_HIZ || "normal", emotion: (env.CARTESIA_DUYGU || "positivity:low").split(",") } } : {}) },
       output_format: { container: "mp3", sample_rate: 44100, bit_rate: 128000 } }),
   });
-  let r = await iste(true);
-  if (r.status === 400 || r.status === 422) r = await iste(false); // ses ayari desteklenmiyorsa ayarsiz dene
-  if (!r.ok) throw new Error("Cartesia " + r.status + " " + (await r.text().catch(() => "")).slice(0, 90));
-  return new Uint8Array(await r.arrayBuffer());
+  // Calisan ayari hatirla; 400 alirsak sirayla baska model/ayar dene
+  const denemeler = [[env.CARTESIA_MODEL || "sonic-2", true, true], [env.CARTESIA_MODEL || "sonic-2", false, true], ["sonic-3", false, true], ["sonic-turbo", false, true], ["sonic-2", false, false]];
+  const iyi = await kvOku(env, "cartesia_ayar", null);
+  if (iyi) denemeler.unshift(iyi);
+  let r, hata = "";
+  for (const d of denemeler) {
+    r = await iste(...d);
+    if (r.ok) { if (JSON.stringify(d) !== JSON.stringify(iyi)) await kvYaz(env, "cartesia_ayar", d); return new Uint8Array(await r.arrayBuffer()); }
+    hata = "Cartesia " + r.status + " " + (await r.text().catch(() => "")).slice(0, 110);
+    if (r.status !== 400 && r.status !== 422) break;
+  }
+  throw new Error(hata);
 }
 
 async function googleSes(metin) {
