@@ -283,6 +283,9 @@ async function dinleVAD(azami){
 // ---------------- Sohbet ----------------
 async function gonder(metin,sesli){
   if(!metin.trim())return;
+  var km=metin.toLocaleLowerCase("tr");
+  if(/canl[ıi] (sohbet|mod)\S* (kapat|kapa)|normal mod/.test(km)){try{localStorage.setItem("jarvis_mod","normal")}catch(e){}gunlukYaz("sen","Sen: "+metin);gunlukYaz("jarvis","Jarvis: Tamam, artık eski (normal) sesli sohbeti kullanıyorum. Geri açmak için 'canlı sohbeti aç' yaz.");return}
+  if(/canl[ıi] (sohbet|mod)\S* (a[çc])/.test(km)){try{localStorage.setItem("jarvis_mod","canli")}catch(e){}gunlukYaz("sen","Sen: "+metin);gunlukYaz("jarvis","Jarvis: Canlı sohbet açık. Bana dokun ya da 'Jarvis' de.");return}
   gunlukYaz("sen","Sen: "+metin);durum("dusunuyor");
   try{
     var r=await fetch("/sohbet",{method:"POST",headers:H(),body:JSON.stringify({metin:metin})});
@@ -296,6 +299,76 @@ async function gonder(metin,sesli){
   }catch(e){gunlukYaz("jarvis","Sunucuya ulaşamadım.");durum("hazir")}
 }
 var sohbetAcik=false;
+// ================= CANLI SESLI SOHBET (Gemini Live) =================
+// Sesin dogrudan Gemini'ye akar; Gemini kendi sesiyle cevap verir, araclari Jarvis sunucusunda calistirir.
+var canli=null;
+function b64Yap(buf){var b=new Uint8Array(buf),s="";for(var i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+function canliKapat(neden){var c=canli;if(!c)return;canli=null;sohbetAcik=false;
+  try{c.ws.close()}catch(e){}try{c.isl.disconnect();c.kaynak.disconnect()}catch(e){}try{c.akis.getTracks().forEach(function(t){t.stop()})}catch(e){}
+  try{c.girCtx.close()}catch(e){}try{c.cikCtx.close()}catch(e){}clearInterval(c.saat);durum("hazir");if(neden)gunlukYaz("",neden);
+  if(MOD==="serbest")androidBitti()}
+async function canliMod(){
+  if(canli||sohbetAcik)return true;
+  var ayar;try{var r=await fetch("/canli-token",{method:"POST",headers:H()});ayar=await r.json();if(!ayar.token)throw new Error(ayar.hata||"anahtar yok")}
+  catch(e){gunlukYaz("","Canlı sohbet açılamadı ("+e.message+"), normal moda geçiyorum.");return false}
+  var akis;try{akis=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}})}catch(e){gunlukYaz("","Mikrofon açılamadı.");return false}
+  sohbetAcik=true;durum("dinliyor");
+  var c={akis:akis,girCtx:new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000}),cikCtx:new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000}),
+    sira:0,kaynaklar:[],senMetin:"",onunMetin:"",sonSes:Date.now(),hazir:false};
+  canli=c;try{c.cikCtx.resume();c.girCtx.resume()}catch(e){}
+  function baglan(mi){
+    if(mi>=ayar.modeller.length){canliKapat();gunlukYaz("","Canlı sohbet modeli bağlanamadı, normal moda geçiyorum.");serbestMod();return}
+    var ws=new WebSocket("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(ayar.token));
+    c.ws=ws;var acildi=false;
+    ws.onopen=function(){ws.send(JSON.stringify({setup:{model:"models/"+ayar.modeller[mi].trim(),
+      generationConfig:{responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:ayar.ses}},languageCode:"tr-TR"}},
+      systemInstruction:{parts:[{text:ayar.sistem}]},tools:[{functionDeclarations:ayar.araclar}],
+      inputAudioTranscription:{},outputAudioTranscription:{}}}))};
+    ws.onmessage=async function(ev){
+      var veri=ev.data;if(veri instanceof Blob)veri=await veri.text();var m;try{m=JSON.parse(veri)}catch(x){return}
+      if(m.setupComplete){acildi=true;c.hazir=true;durum("dinliyor");gunlukYaz("","🎙 Canlı sohbet açık. Konuş, istediğin an sözümü kesebilirsin.");
+        ws.send(JSON.stringify({realtimeInput:{text:"(Eren seni çağırdı. Kısaca 'Efendim?' de.)"}}));return}
+      var sc=m.serverContent;
+      if(sc){
+        if(sc.interrupted){c.kaynaklar.forEach(function(k){try{k.stop()}catch(e){}});c.kaynaklar=[];c.sira=0}
+        if(sc.inputTranscription&&sc.inputTranscription.text){c.senMetin+=sc.inputTranscription.text;c.sonSes=Date.now()}
+        if(sc.outputTranscription&&sc.outputTranscription.text)c.onunMetin+=sc.outputTranscription.text;
+        ((sc.modelTurn&&sc.modelTurn.parts)||[]).forEach(function(p){if(p.inlineData&&p.inlineData.data)cal24(p.inlineData.data)});
+        if(sc.turnComplete){if(c.senMetin.trim())gunlukYaz("sen","Sen: "+c.senMetin.trim());if(c.onunMetin.trim())gunlukYaz("jarvis","Jarvis: "+c.onunMetin.trim());c.senMetin="";c.onunMetin="";c.sonSes=Date.now()}
+      }
+      if(m.toolCall){
+        var cevaplar=[];
+        for(var i=0;i<(m.toolCall.functionCalls||[]).length;i++){var fc=m.toolCall.functionCalls[i];
+          if(fc.name==="sohbeti_bitir"){setTimeout(function(){canliKapat("Canlı sohbet kapandı.")},2500);cevaplar.push({id:fc.id,name:fc.name,response:{result:"kapatiliyor"}});continue}
+          gunlukYaz("","⚙ "+fc.name+" çalışıyor...");
+          try{var rr=await (await fetch("/arac",{method:"POST",headers:H(),body:JSON.stringify({ad:fc.name,args:fc.args||{}})})).json();
+            if(rr.ekran)panelGoster(rr.ekran);
+            if(rr.link||rr.linkler){var li=gunlukYaz("jarvis","🔗");[].concat(rr.link?[{ad:"AÇ",url:rr.link}]:[],rr.linkler||[]).forEach(function(l){var a=document.createElement("a");a.href=l.url;a.target="_blank";a.textContent=" ["+l.ad+"]";a.onclick=function(e){if(window.Android&&Android.ac){e.preventDefault();Android.ac(this.href)}};li.appendChild(a)})}
+            cevaplar.push({id:fc.id,name:fc.name,response:{result:String(rr.metin||"tamam").slice(0,3000)}})}
+          catch(e){cevaplar.push({id:fc.id,name:fc.name,response:{error:e.message}})}}
+        try{ws.send(JSON.stringify({toolResponse:{functionResponses:cevaplar}}))}catch(e){}
+      }
+      if(m.goAway)canliKapat("Canlı sohbet süresi doldu, tekrar 'Jarvis' de.");
+    };
+    ws.onclose=function(ev){if(canli!==c)return;if(!acildi){baglan(mi+1);return}canliKapat(ev.code===1000?"":"Canlı sohbet bağlantısı kapandı"+(ev.reason?" ("+ev.reason.slice(0,80)+")":"")+".")};
+  }
+  function cal24(b64){var bin=atob(b64),n=bin.length>>1,f=new Float32Array(n);for(var i=0;i<n;i++){var v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v>32767)v-=65536;f[i]=v/32768}
+    var buf=c.cikCtx.createBuffer(1,n,24000);buf.copyToChannel(f,0);var k=c.cikCtx.createBufferSource();k.buffer=buf;k.connect(c.cikCtx.destination);
+    var t=Math.max(c.cikCtx.currentTime+.03,c.sira);k.start(t);c.sira=t+buf.duration;c.kaynaklar.push(k);k.onended=function(){c.kaynaklar=c.kaynaklar.filter(function(x){return x!==k})};
+    durum("konusuyor");seviye=.08;clearTimeout(c.konT);c.konT=setTimeout(function(){if(canli===c){durum("dinliyor");seviye=0}},Math.max(200,(c.sira-c.cikCtx.currentTime)*1000+150))}
+  c.kaynak=c.girCtx.createMediaStreamSource(akis);c.isl=c.girCtx.createScriptProcessor(2048,1,1);
+  c.isl.onaudioprocess=function(e){if(!c.hazir||!c.ws||c.ws.readyState!==1)return;var g=e.inputBuffer.getChannelData(0),o=new Int16Array(g.length),top=0;
+    for(var i=0;i<g.length;i++){var v=Math.max(-1,Math.min(1,g[i]));o[i]=v<0?v*32768:v*32767;top+=v*v}
+    if(Math.sqrt(top/g.length)>.02)c.sonSes=Date.now();
+    c.ws.send(JSON.stringify({realtimeInput:{audio:{data:b64Yap(o.buffer),mimeType:"audio/pcm;rate=16000"}}}))};
+  c.kaynak.connect(c.isl);c.isl.connect(c.girCtx.destination);
+  // 75 sn kimse konusmazsa kapat
+  c.saat=setInterval(function(){if(canli===c&&Date.now()-c.sonSes>75000&&!c.kaynaklar.length)canliKapat("Sessizlik oldu, canlı sohbeti kapattım.")},5000);
+  baglan(0);return true;
+}
+async function cagir(){var tercih="canli";try{tercih=localStorage.getItem("jarvis_mod")||"canli"}catch(e){}
+  if(tercih==="canli"&&await canliMod())return;serbestMod()}
+
 async function serbestMod(karsila){
   if(sohbetAcik)return;sohbetAcik=true;iptalDinle=false;
   if(karsila!==false)await konus("Efendim?");
@@ -322,8 +395,8 @@ async function serbestMod(karsila){
   if(MOD==="serbest")androidBitti();
 }
 function sohbetiKapat(){sohbetAcik=false;iptalDinle=true;sesSirasi++;if(oynatici)oynatici.pause();try{speechSynthesis.cancel()}catch(e){}try{if(window.Android&&Android.sustur)Android.sustur()}catch(e){}durum("hazir")}
-$("mik").onclick=function(){if(sohbetAcik)sohbetiKapat();else serbestMod()};
-$("hud").onclick=function(){if(!sohbetAcik)serbestMod()};
+$("mik").onclick=function(){if(canli){canliKapat("Canlı sohbeti kapattım.");return}if(sohbetAcik)sohbetiKapat();else cagir()};
+$("hud").onclick=function(){if(canli){canliKapat("Canlı sohbeti kapattım.");return}if(!sohbetAcik)cagir()};
 $("gonder").onclick=function(){gonder($("yazi").value,false);$("yazi").value=""};
 $("yazi").onkeydown=function(e){if(e.key==="Enter"){gonder($("yazi").value,false);$("yazi").value=""}};
 
@@ -511,7 +584,7 @@ async function alarmMod(){
   androidBitti();
 }
 
-if(MOD==="serbest")setTimeout(serbestMod,300);
+if(MOD==="serbest")setTimeout(cagir,300);
 if(MOD==="alarm")setTimeout(alarmMod,300);
 if(MOD==="paylas")setTimeout(async function(){var ad=new URLSearchParams(location.search).get("ad")||"video";
   gunlukYaz("","📤 Drive'a yüklendi: "+ad);await konus("Videoyu Drive'a yükledim. Nasıl kurgulayayım? GKey stili mi, başka bir şey mi?");

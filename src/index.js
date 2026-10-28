@@ -2698,6 +2698,38 @@ export default {
       if (!f) return new Response("Fatura bulunamadi", { status: 404 });
       return new Response(faturaSayfa(f), { headers: { "content-type": "text/html; charset=utf-8" } });
     }
+    // ---- Canli sesli sohbet (Gemini Live): telefon kisa omurlu anahtar alir, araclar sunucuda calisir ----
+    if (request.method === "POST" && url.pathname === "/canli-token") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (!env.GEMINI_API_KEY) return Response.json({ hata: "GEMINI_API_KEY yok" }, { status: 400 });
+      const simdi = Date.now();
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/auth_tokens", {
+        method: "POST", headers: { "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
+        body: JSON.stringify({ uses: 3, expireTime: new Date(simdi + 30 * 60e3).toISOString(), newSessionExpireTime: new Date(simdi + 3 * 60e3).toISOString() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.name) return Response.json({ hata: "Canli anahtar alinamadi (" + r.status + ") " + JSON.stringify(j).slice(0, 120) }, { status: 502 });
+      env.__kok = url.origin;
+      const notlar = await kvOku(env, "notlar", []);
+      const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.slice(-40).join("\n- ") : "") + (await baglam(env).catch(() => "")) +
+        "\n\nCANLI SESLI SOHBET: Eren seninle telefonda konusur gibi konusuyor. Turkce, dogal, kisa (1-3 cumle) konus; liste/markdown kullanma. " +
+        "Bir is istediginde (harita, kurgu, ilan, hatirlatma, hava, mesaj taslagi...) uygun araci cagir, sonucu kendi cumlelerinle kisaca soyle. Linkleri sesli okuma, 'ekrana koydum' de. " +
+        "Eren 'gorusuruz', 'kapat', 'tamam bu kadar' derse kisaca vedalas ve sohbeti_bitir aracini cagir.";
+      const tip = (t) => ({ type: "OBJECT", properties: Object.fromEntries(Object.entries(t.function.parameters.properties || {}).map(([k, v]) => [k, { type: "STRING", description: v.description || "" }])) });
+      const araclar = ARACLAR.slice(0, 60).map((t) => ({ name: t.function.name, description: t.function.description.slice(0, 300), ...(Object.keys(t.function.parameters.properties || {}).length ? { parameters: tip(t) } : {}) }));
+      araclar.push({ name: "sohbeti_bitir", description: "Eren konusmayi bitirmek istediginde sesli sohbeti kapatir." });
+      return Response.json({ token: j.name, modeller: (env.CANLI_MODEL || "gemini-3.1-flash-live-preview,gemini-3.8-live,gemini-2.5-flash-native-audio-preview-12-2025").split(","), ses: env.CANLI_SES || "Charon", sistem, araclar });
+    }
+    if (request.method === "POST" && url.pathname === "/arac") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      const { ad = "", args = {} } = await request.json();
+      env.__kok = url.origin;
+      try {
+        const r = await aracCalistir(env, ad, args || {});
+        await gunlukEkle(env, "Canlı sohbette araç: " + ad).catch(() => {});
+        return Response.json(typeof r === "string" ? { metin: r } : r);
+      } catch (e) { return Response.json({ metin: "HATA: " + e.message }); }
+    }
     if (request.method === "GET" && url.pathname === "/laptop-komut") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
       if (Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) > 5 * 60e3) await kvYaz(env, "laptop_son_gorulme", Date.now()); // KV yazma limiti icin seyrek
