@@ -25,7 +25,10 @@ const SISTEM_TEMEL =
   "cevabinin en sonuna [HATIRLA: kisa not] ekle. Bu etiketi baska durumda kullanma. " +
   "COK ONEMLI: Asla yapmadigin bir isi yaptim deme ve bilmedigin bir sonucu uydurma. Drive islemlerini sadece komutlarla yaparsin, " +
   "sohbet sirasinda Drive'a bir sey koydugunu ya da gordugunu soyleme. Kurgu, ilan, stil gibi islerin sonucunu sadece " +
-  "komutlarin dondurdugu bilgiyle bilirsin; Eren kurgunun durumunu sorarsa 'kurgu durumu' demesini soyle.";
+  "komutlarin dondurdugu bilgiyle bilirsin; Eren kurgunun durumunu sorarsa 'kurgu durumu' demesini soyle. " +
+  "RUH HALI: Eren yorgun, stresli, uzgun ya da sinirli gorunurse (kisa sert mesajlar, 'yoruldum', 'bıktım', gece gec saat, uzun mesai sonrasi) " +
+  "once bunu fark et ve tek cumleyle yanında oldugunu hissettir; cevabini daha kisa ve sakin tut, ona yeni is yukleme, gerekiyorsa dinlenmesini oner. " +
+  "Iyi bir haber oldugunda (odeme geldi, yeni musteri, hedefe yaklasti) icten kutla.";
 
 function beyinSec(metin) {
   const m = metin.toLocaleLowerCase("tr").trim();
@@ -1808,6 +1811,36 @@ async function yedekAl(env) {
   await gh(env, yol, { method: "PUT", body: JSON.stringify({ message: "Gece hafiza yedegi " + trSimdi().tarih, content: b64Yap(JSON.stringify(veri, null, 1)), branch: "yedek", ...(sha ? { sha } : {}) }) });
 }
 
+// --- Fatura (Invoice): imzali, yazdirilabilir sayfa ---
+async function faturaOlustur(env, a = {}) {
+  const musteri = String(a.musteri || "").trim();
+  if (!musteri) return "HATA: musteri adi gerekli.";
+  const isler = (await kvOku(env, "isler", [])).filter((i) => i.musteri.toLowerCase() === musteri.toLowerCase() && !i.odendi && i.durum !== "iptal");
+  const kalemler = a.kalem ? [{ aciklama: String(a.kalem), ucret: parseFloat(a.tutar || "0") || 0, birim: "USD" }] : isler.map((i) => ({ aciklama: i.aciklama, ucret: i.ucret, birim: i.birim }));
+  if (!kalemler.length || !kalemler.some((k) => k.ucret > 0)) return "HATA: faturalanacak ucretli is yok. Is ekle ya da kalem + tutar ver.";
+  const no = "INV-" + trSimdi().tarih.replace(/-/g, "") + "-" + crypto.randomUUID().slice(0, 4).toUpperCase();
+  const f = { no, tarih: trSimdi().tarih, musteri, kalemler, odeme: String(a.odeme || (await kvOku(env, "musteri_kartlari", {}))[musteri.toLowerCase()]?.odeme || "Payoneer"), ad: env.FATURA_AD || "Eren" };
+  const l = await kvOku(env, "faturalar", {});
+  l[no] = f;
+  await kvYaz(env, "faturalar", Object.fromEntries(Object.entries(l).slice(-50)));
+  const imza = await videoImza(env, "fatura-" + no);
+  const link = (env.__kok || "") + "/fatura/" + no + "?t=" + imza;
+  await gunlukEkle(env, "Fatura hazırlandı: " + no + " (" + musteri + ")");
+  const top = kalemler.reduce((t, k) => t + (k.birim === "USD" ? k.ucret : 0), 0);
+  return { metin: `Fatura ${no} hazir: ${kalemler.length} kalem, toplam ${top} USD. Linki musteriye gonderebilir ya da tarayicida acip PDF olarak kaydedebilirsin. Musteriye mesaj: "Hi! Here is the invoice for my recent work: ${link} Thank you!" (Turkcesi: Merhaba! Son islerimin faturasi bu linkte. Tesekkurler!)`, link };
+}
+function faturaSayfa(f) {
+  const e = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const top = f.kalemler.reduce((t, k) => t + k.ucret, 0);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice ${e(f.no)}</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#111;background:#fff}h1{margin:0;font-size:28px}table{width:100%;border-collapse:collapse;margin:24px 0}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}th:last-child,td:last-child{text-align:right}.top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.t{font-size:22px;font-weight:700}.k{color:#666;font-size:14px}button{padding:10px 18px;border:0;border-radius:8px;background:#111;color:#fff}@media print{button{display:none}}</style></head><body>
+<div class="top"><div><h1>INVOICE</h1><div class="k">${e(f.no)} • ${e(f.tarih)}</div></div><div><b>${e(f.ad)}</b><div class="k">Video Editor</div></div></div>
+<p><span class="k">Bill to:</span><br><b>${e(f.musteri)}</b></p>
+<table><tr><th>Description</th><th>Amount</th></tr>${f.kalemler.map((k) => `<tr><td>${e(k.aciklama)}</td><td>${e(k.ucret)} ${e(k.birim)}</td></tr>`).join("")}
+<tr><td class="t">Total</td><td class="t">${e(top)} ${e(f.kalemler[0].birim)}</td></tr></table>
+<p><span class="k">Payment method:</span> ${e(f.odeme)}</p><p class="k">Thank you for your business!</p><button onclick="print()">Save as PDF / Print</button></body></html>`;
+}
+
 // --- Saatlik kontroller (yeni ozellikler) ---
 async function yeniSaatlik(env) {
   const z = trSimdi();
@@ -1881,7 +1914,7 @@ const ARAC_GRUPLARI = [
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle"]],
   [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
   [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
-  [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price/i, ["musteri_kart", "teklif_hesapla"]],
+  [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price|fatura|invoice/i, ["musteri_kart", "teklif_hesapla", "fatura"]],
   [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
   [/hedef|hafta/i, ["haftalik_hedef"]],
   [/dolar|kur|euro|döviz|doviz/i, ["dolar_alarm"]],
@@ -1906,6 +1939,7 @@ const ARACLAR = [
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
   ["musteri_kart", "Musteri kartini gosterir/gunceller (fiyat, stil, kanal, iletisim, odeme yontemi, not); toplam is, odenen ve bekleyen para, son mesaj. Ad verilmezse tum musteriler.", { ad: "musteri adi", fiyat: "ornek '12$/short' (opsiyonel)", stil: "opsiyonel", kanal: "YouTube kanali (opsiyonel)", iletisim: "Discord vb. (opsiyonel)", odeme: "Payoneer vb. (opsiyonel)", not: "eklenecek not (opsiyonel)" }],
   ["teklif_hesapla", "Video kurgu fiyat teklifi hesaplar ve musteriye Ingilizce + Turkce teklif mesaji hazirlar.", { adet: "video sayisi", sure_sn: "her videonun saniyesi", tur: "shorts veya uzun", acil: "acil mi (evet/hayir)", ekstra: "thumbnail vb. (opsiyonel)" }],
+  ["fatura", "Musteriye Ingilizce fatura (invoice) sayfasi olusturur; odenmemis isleri kalem yapar ya da tek kalem verilir. Link PDF olarak da kaydedilebilir.", { musteri: "musteri adi", kalem: "tek kalem aciklamasi (opsiyonel)", tutar: "USD (opsiyonel)", odeme: "Payoneer vb. (opsiyonel)" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
   ["dolar_alarm", "Dolar/TL kurunu soyler; kur verilirse o seviye gecilince bildirim kurar.", { kur: "TL seviyesi (opsiyonel)" }],
@@ -1980,6 +2014,7 @@ async function aracCalistir(env, ad, a) {
     }
     if (ad === "musteri_kart") return await musteriKart(env, a);
     if (ad === "teklif_hesapla") return teklifHesapla(a);
+    if (ad === "fatura") return await faturaOlustur(env, a);
     if (ad === "harcama") return await harcama(env, a);
     if (ad === "haftalik_hedef") return await haftalikHedef(env, a);
     if (ad === "dolar_alarm") return await dolarAlarm(env, a);
@@ -2310,6 +2345,13 @@ export default {
       const j = await tg(env, "setWebhook", { url: url.origin + "/telegram", secret_token: await tgGizli(env), allowed_updates: ["message", "edited_message"] });
       const bot = await tg(env, "getMe", {});
       return new Response(j.ok ? `Tamam! Telegram'da @${bot.result?.username} botunu ac ve Jarvis sifreni yaz.` : "Olmadi: " + JSON.stringify(j), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    const fm = url.pathname.match(/^\/fatura\/([\w-]+)$/);
+    if (request.method === "GET" && fm) {
+      if (url.searchParams.get("t") !== (await videoImza(env, "fatura-" + fm[1]))) return new Response("Yetkisiz", { status: 401 });
+      const f = (await kvOku(env, "faturalar", {}))[fm[1]];
+      if (!f) return new Response("Fatura bulunamadi", { status: 404 });
+      return new Response(faturaSayfa(f), { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     if (request.method === "GET" && url.pathname === "/portfolyo") {
       return new Response(await portfolyoSayfa(env), { headers: { "content-type": "text/html; charset=utf-8" } });
