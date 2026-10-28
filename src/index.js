@@ -297,6 +297,44 @@ async function topluKurgula(env, a = {}) {
   return `${secilen.length} videoyu kurguya gönderdim: ${secilen.map((f) => f.name).join(", ")}. Hepsi aynı anda bulutta işleniyor, 10-15 dakikada biter.` + (l.length > adet ? ` Sırada ${l.length - adet} video daha var.` : "");
 }
 
+// Revizyon: onceki kurgunun planini Eren'in istegine gore degistirip yeniden render alir
+async function releaseDosya(env, run, ad) {
+  const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/kurgu-${run}`);
+  const a = (rel.assets || []).find((x) => x.name === ad);
+  if (!a) throw new Error(ad + " yok (eski kurgu olabilir)");
+  const r = await fetch(a.url, { headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" } });
+  if (!r.ok) throw new Error(ad + " indirilemedi " + r.status);
+  return r.text();
+}
+async function revize(env, a = {}) {
+  let run = parseInt(a.kurgu || "0");
+  if (!run) {
+    const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=10&status=success`);
+    run = (j.workflow_runs || [])[0]?.run_number;
+  }
+  if (!run) return "HATA: revize edilecek bitmis kurgu yok.";
+  let plan, kaynak;
+  try { plan = JSON.parse(await releaseDosya(env, run, "plan.json")); kaynak = (await releaseDosya(env, run, "kaynak.txt")).trim(); }
+  catch (e) { return "HATA: Kurgu #" + run + " revize edilemiyor: " + e.message + ". Yeni kurgulardan itibaren revizyon calisir."; }
+  const { kelimeler, ...ozet } = plan;
+  const sistem = "Sen video editorusun. Asagida bir Remotion kurgu plani (JSON, zamanlar HAM video saniyesi) ve Eren'in revizyon istegi var. " +
+    "Istegi uygula, baska hicbir seyi degistirme. SADECE degisen alanlari iceren JSON dondur (alanlar: kesimler, zoomlar, yazilar, isaretler, hook, altyazi, muzik, efektler, kapak, ilerleme, flash, logo, broll). " +
+    "Konusma dokumu (saniye: kelime): " + (kelimeler || []).slice(0, 400).map((w) => `${w.bas.toFixed(1)}:${w.metin}`).join(" ");
+  let degisen;
+  try { degisen = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: "PLAN: " + JSON.stringify(ozet) + "\n\nISTEK: " + a.istek }], undefined, { json: true })); }
+  catch (e) { return "HATA: revizyon plani cikarilamadi (" + e.message + ")."; }
+  const yeni = { ...plan, ...degisen, kelimeler, hazir: true };
+  const metin = JSON.stringify(yeni);
+  if (metin.length > 60000) return "HATA: plan cok buyuk (uzun video), revizyon icin videoyu yeniden kurgulat.";
+  const format = /uzun/i.test(a.format || "") ? "uzun" : "shorts";
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/dispatches`, {
+    method: "POST",
+    body: JSON.stringify({ ref: "main", inputs: { format, video_url: kaynak, malzeme_url: "", talimat: "", stil: "", plan: metin } }),
+  });
+  await gunlukEkle(env, `Kurgu #${run} revize ediliyor: ${String(a.istek).slice(0, 60)}`);
+  return `Kurgu #${run} için revizyonu başlattım: "${a.istek}". Değişen kısımlar: ${Object.keys(degisen).join(", ") || "yok"}. 5-10 dakikada yeni sürüm hazır olur.`;
+}
+
 async function stilCikar(env, metin) {
   const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
   if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
@@ -1549,6 +1587,7 @@ const ARACLAR = [
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
   ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
+  ["revize", "Bitmis bir kurguyu (varsayilan son kurgu) Eren'in ya da musterinin revizyon istegine gore degistirip yeniden render alir. Ornek: 'yaziyi buyut', 'ilk 2 saniyeyi at', 'hook BIND MOLLY olsun'.", { istek: "ne degisecek", kurgu: "kurgu numarasi (opsiyonel)", format: "shorts veya uzun (opsiyonel)" }],
   ["toplu_kurgula", "Drive'daki Jarvis/ham klasorunde henuz kurgulanmamis butun videolari (en fazla 8) ayni anda kurguya yollar.", { stil: "musteri/stil adi, ornek gkey", format: "shorts veya uzun", adet: "en fazla kac video", istek: "ozel istekler (opsiyonel)" }],
   ["oto_kurgu", "Otomatik kurgu modunu acar/kapatir: acikken Drive/ham'a dusen her yeni video saatte bir kendiliginden kurgulanir.", { acik: "true veya false", stil: "stil adi, ornek gkey", format: "shorts veya uzun" }],
   ["fikir_uret", "Guncel Valorant yamasi ve metasina gore GKey icin lineup Shorts video fikirleri + GKey'e atilacak oneri mesaji (EN+TR) hazirlar.", { konu: "oyun/konu (opsiyonel, varsayilan Valorant)" }],
@@ -1616,6 +1655,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "izin_gunu") return await izinAyarla(env, s(a.gun));
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
+    if (ad === "revize") return await revize(env, a);
     if (ad === "toplu_kurgula") return await topluKurgula(env, a);
     if (ad === "oto_kurgu") {
       const acik = !/false|kapat|hayir|0/i.test(String(a.acik));
