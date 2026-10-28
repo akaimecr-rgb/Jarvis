@@ -96,3 +96,6 @@
 - revize: biten kurguyu isteğe göre değiştirip yeniden render (müşteri revizyonları).
 - Portfolyo: "son kurguyu portfolyoya ekle".
 - Sabah özetinde "Günün İngilizcesi".
+- Telegram: TELEGRAM_BOT_TOKEN ekle → tarayıcıda jarviss.akaimecr.workers.dev/telegram-kur?s=<Jarvis şifresi> aç → botu açıp şifreyi yaz. Yazı + sesli mesaj, bildirimler oraya da gelir.
+- Twitch: TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET (dev.twitch.tv) → klip_bul. Kurgu artık Twitch/Kick/TikTok/YouTube linklerinden de indirir (YouTube GitHub'da bazen engellenir). "klip" stili: yatay klibi dikeye sığdırır.
+- Ajan artık her mesaja sadece ilgili araçları yolluyor (Groq limiti), bu liste sadece sorulunca okunuyor.
