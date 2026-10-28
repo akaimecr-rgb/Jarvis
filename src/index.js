@@ -1557,6 +1557,11 @@ async function saatlikIs(env) {
         const yeni = m.filter((x) => !x.author.bot && !(x.author.username || "").toLowerCase().includes(benim));
         if (!yeni.length) continue;
         const gkey = yeni.some((x) => /gkey/i.test(x.author.username + " " + (x.author.global_name || "")));
+        try {
+          const kartlar = await kvOku(env, "musteri_kartlari", {});
+          for (const x of yeni) for (const ad of Object.keys(kartlar).concat("gkey"))
+            if ((x.author.username + " " + (x.author.global_name || "")).toLowerCase().includes(ad)) await kvYaz(env, "son_temas_" + ad, Date.now());
+        } catch (e) {}
         await bildirimEkle(env, (gkey ? "GKey Discord'dan yazdı! " : "Discord'da yeni mesaj ") + "(" + yeni.length + ")", (yeni[0].content || "").slice(0, 120), "");
         await gunlukEkle(env, "Discord'da " + yeni.length + " yeni mesaj" + (gkey ? " (GKey)" : ""));
       } catch (e) {}
@@ -1598,6 +1603,8 @@ async function saatlikIs(env) {
       if (yeni.length) await bildirimEkle(env, "Jarvis: bir servis bozuldu ⚠️", yeni.map((x) => x.ad + ": " + x.not).join("; ").slice(0, 140), "");
     } catch (e) {}
   }
+  // 3g) Yeni ozellik kontrolleri (dolar, tarih, cikis havasi, teslim, sessiz musteri)
+  try { await yeniSaatlik(env); } catch (e) {}
   // 3c) Pazar 23:00 haftalik rapor
   if (z.gun === "Pazar" && z.saat.startsWith("23") && (await kvOku(env, "son_haftalik", "")) !== z.tarih) {
     await kvYaz(env, "son_haftalik", z.tarih);
@@ -1627,6 +1634,7 @@ async function sabahOzeti(env) {
   try { parcalar.push((await gunlukPlan(env)).metin); } catch (e) {}
   parcalar.push(await nelerYaptin(env));
   try { parcalar.push((await gelirOzeti(env)).metin); } catch (e) {}
+  try { const g = await kvOku(env, "gece_ogrenilen", null); if (g && g.tarih === trSimdi().tarih) parcalar.push("Gece kendi kendine ogrendigin (Eren'e 'gece sunu ogrendim' diye kisaca anlat): " + g.metin); } catch (e) {}
   try { const n = (await kvOku(env, "arastirma_notlari", [])).slice(-1)[0]; if (n) parcalar.push("Son arastirma (" + n.konu + "): " + n.ozet.slice(0, 500)); } catch (e) {}
   const bk = await kvOku(env, "bekleyen_kod", null);
   if (bk) parcalar.push("Onay bekleyen kod onerin: " + bk.ozet);
@@ -1643,12 +1651,243 @@ async function sabahOzeti(env) {
   return { cevap, ekran };
 }
 
+// ================= YENI OZELLIKLER (28 Ekim aksam) =================
+// --- Musteri kartlari ---
+async function musteriKart(env, a = {}) {
+  const kartlar = await kvOku(env, "musteri_kartlari", {});
+  const ad = String(a.ad || "").trim();
+  if (!ad) {
+    const l = Object.values(kartlar);
+    if (!l.length) return "Henuz musteri karti yok. Ornek: 'GKey kartina fiyat 12 dolar yaz'.";
+    return "Musteriler: " + l.map((k) => `${k.ad} (${k.fiyat || "fiyat yok"}${k.kanal ? ", " + k.kanal : ""})`).join("; ");
+  }
+  const anahtar = ad.toLowerCase();
+  const k = kartlar[anahtar] || { ad, notlar: [] };
+  for (const alan of ["fiyat", "stil", "kanal", "iletisim", "odeme"]) if (a[alan]) k[alan] = String(a[alan]);
+  if (a.not) k.notlar = (k.notlar || []).concat(String(a.not)).slice(-15);
+  const degisti = ["fiyat", "stil", "kanal", "iletisim", "odeme", "not"].some((x) => a[x]);
+  kartlar[anahtar] = k;
+  if (degisti) await kvYaz(env, "musteri_kartlari", kartlar);
+  const isler = (await kvOku(env, "isler", [])).filter((i) => i.musteri.toLowerCase() === anahtar);
+  const kur = await kurAl(env).catch(() => 0);
+  const odenen = isler.filter((i) => i.odendi).reduce((t, i) => t + paraCevir(i.ucret, i.birim, kur), 0);
+  const bekleyen = isler.filter((i) => i.durum === "teslim" && !i.odendi).reduce((t, i) => t + paraCevir(i.ucret, i.birim, kur), 0);
+  const temas = await kvOku(env, "son_temas_" + anahtar, 0);
+  return `${degisti ? "Kart guncellendi. " : ""}${k.ad}: fiyat ${k.fiyat || "?"}, stil ${k.stil || "?"}, kanal ${k.kanal || "?"}, iletisim ${k.iletisim || "?"}, odeme ${k.odeme || "?"}. ` +
+    `Toplam ${isler.length} is, odenen ${odenen.toFixed(0)}$, bekleyen ${bekleyen.toFixed(0)}$. ` +
+    (temas ? `Son mesaj ${Math.round((Date.now() - temas) / 864e5)} gun once. ` : "") + (k.notlar?.length ? "Notlar: " + k.notlar.join("; ") : "");
+}
+
+// --- Fiyat teklifi ---
+function teklifHesapla(a = {}) {
+  const adet = Math.max(1, parseInt(a.adet || "1"));
+  const sure = Math.max(5, parseFloat(a.sure_sn || "40"));
+  const uzun = /uzun|long/i.test(a.tur || "") || sure > 180;
+  let birim = uzun ? 20 + Math.ceil(sure / 300) * 12 : 10 + Math.max(0, Math.ceil((sure - 30) / 15)) * 2;
+  if (/thumbnail|kapak/i.test(a.ekstra || "")) birim += uzun ? 8 : 3;
+  let toplam = birim * adet;
+  const indirim = adet >= 20 ? 0.15 : adet >= 10 ? 0.1 : adet >= 5 ? 0.05 : 0;
+  toplam *= 1 - indirim;
+  if (/evet|true|acil|urgent/i.test(String(a.acil || ""))) toplam *= 1.3;
+  toplam = Math.round(toplam);
+  const gun = Math.max(1, Math.ceil(adet / (uzun ? 1 : 3)));
+  const en = `Hi! For ${adet} ${uzun ? "long-form video" : "Short"}${adet > 1 ? "s" : ""} (~${Math.round(sure)}s each) my price is $${toplam} total` +
+    (indirim ? ` (${Math.round(indirim * 100)}% bulk discount included)` : "") + `. Delivery in about ${gun} day${gun > 1 ? "s" : ""}, with captions, zooms, sound effects and 1 free revision. Happy to do a quick test edit first!`;
+  const tr = `Merhaba! ${adet} adet ${uzun ? "uzun video" : "Short"} (her biri ~${Math.round(sure)} sn) için toplam fiyatım $${toplam}` +
+    (indirim ? ` (%${Math.round(indirim * 100)} toplu indirim dahil)` : "") + `. Yaklaşık ${gun} günde teslim; altyazı, zoom, ses efekti ve 1 ücretsiz revizyon dahil. İstersen önce hızlı bir deneme kurgusu yapabilirim!`;
+  return `Teklif: birim ~${birim}$, toplam ${toplam}$, teslim ~${gun} gun. Ingilizce mesaj: "${en}" | Turkcesi: "${tr}"`;
+}
+
+// --- Harcama takibi ---
+async function harcama(env, a = {}) {
+  const l = await kvOku(env, "harcamalar", []);
+  const ay = trSimdi().tarih.slice(0, 7);
+  if (a.miktar) {
+    const m = parseFloat(String(a.miktar).replace(",", "."));
+    if (!m) return "HATA: miktar anlasilmadi.";
+    l.push({ zaman: Date.now(), ay, miktar: m, kategori: String(a.kategori || "diger").toLowerCase(), aciklama: String(a.aciklama || "") });
+    await kvYaz(env, "harcamalar", l.slice(-500));
+  }
+  const buAy = l.filter((x) => x.ay === ay);
+  const top = buAy.reduce((t, x) => t + x.miktar, 0);
+  const kat = {};
+  buAy.forEach((x) => (kat[x.kategori] = (kat[x.kategori] || 0) + x.miktar));
+  return (a.miktar ? `${a.miktar} TL (${a.kategori || "diger"}) kaydedildi. ` : "") +
+    `Bu ay toplam harcama ${Math.round(top)} TL: ` + Object.entries(kat).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${Math.round(v)} TL`).join(", ");
+}
+
+// --- Haftalik hedef ---
+async function haftalikHedef(env, a = {}) {
+  const pzt = (() => { const d = new Date(Date.now() + 3 * 3600 * 1000); const g = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - g); return d.toISOString().slice(0, 10); })();
+  let h = await kvOku(env, "haftalik_hedef", null);
+  if (a.sayi) { h = { hafta: pzt, sayi: parseInt(a.sayi), ne: String(a.ne || "video") }; await kvYaz(env, "haftalik_hedef", h); }
+  if (!h) return "Haftalik hedef yok. Ornek: 'bu hafta hedefim 10 video'.";
+  let yapilan = 0;
+  try {
+    const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/render.yml/runs?per_page=50&status=success&created=>=${pzt}`);
+    yapilan = (j.workflow_runs || []).length;
+  } catch (e) {}
+  const isler = (await kvOku(env, "isler", [])).filter((i) => (i.teslimEdildi || 0) >= Date.parse(pzt + "T00:00:00+03:00")).length;
+  return `Haftalik hedef: ${h.sayi} ${h.ne}. Bu hafta ${yapilan} kurgu bitti, ${isler} is teslim edildi. ` +
+    (h.hafta !== pzt ? "(Hedef gecen haftadan kalma, yenisini soyleyebilirsin.) " : "") + `Kalan: ${Math.max(0, h.sayi - Math.max(yapilan, isler))}.`;
+}
+
+// --- Dolar alarmi ve onemli tarihler ---
+async function dolarAlarm(env, a = {}) {
+  const k = parseFloat(String(a.kur || "").replace(",", "."));
+  const kur = await kurAl(env).catch(() => 0);
+  if (!k) return `Su an 1 dolar ${kur ? kur.toFixed(2) : "?"} TL. Alarm icin kur soyle (ornek 'dolar 35'i gecince haber ver').`;
+  await kvYaz(env, "dolar_alarm", { kur: k, yon: kur && k < kur ? "alti" : "ustu" });
+  return `Tamam, dolar ${k} TL'nin ${kur && k < kur ? "altina dusunce" : "ustune cikinca"} haber verecegim (su an ${kur ? kur.toFixed(2) : "?"}).`;
+}
+async function onemliTarih(env, a = {}) {
+  const l = await kvOku(env, "onemli_tarihler", []);
+  if (a.ad && a.tarih) {
+    const t = String(a.tarih).match(/(\d{1,2})[./-](\d{1,2})/);
+    if (!t) return "HATA: tarih GG.AA seklinde olmali (ornek 14.02).";
+    l.push({ ad: String(a.ad), gun: t[1].padStart(2, "0"), ay: t[2].padStart(2, "0") });
+    await kvYaz(env, "onemli_tarihler", l.slice(-60));
+  }
+  return (a.ad ? "Kaydettim. " : "") + (l.length ? "Onemli tarihler: " + l.map((x) => `${x.ad} ${x.gun}.${x.ay}`).join(", ") + ". Bir gun once ve o gun sabah hatirlatirim." : "Kayitli onemli tarih yok.");
+}
+
+// --- Uyku takibi (iyi geceler / uyandim zamanlari) ---
+async function uykuKaydet(env, tur) {
+  const l = await kvOku(env, "uyku", []);
+  l.push({ tur, zaman: Date.now() });
+  await kvYaz(env, "uyku", l.slice(-60));
+}
+async function uykuOzeti(env) {
+  const l = await kvOku(env, "uyku", []);
+  const geceler = [];
+  for (let i = 0; i < l.length; i++) if (l[i].tur === "yat") {
+    const k = l.slice(i + 1).find((x) => x.tur === "kalk");
+    if (k && k.zaman - l[i].zaman < 16 * 3600e3) geceler.push({ yat: l[i].zaman, kalk: k.zaman, sure: (k.zaman - l[i].zaman) / 3600e3 });
+  }
+  const son = geceler.slice(-7);
+  if (!son.length) return "Henuz uyku kaydi yok. 'iyi geceler' ve alarmda 'uyandim' dedikce kaydederim.";
+  const ort = son.reduce((t, g) => t + g.sure, 0) / son.length;
+  const s = (z) => new Date(z + 3 * 3600e3).toISOString().slice(11, 16);
+  return `Son ${son.length} gece ortalama ${ort.toFixed(1)} saat uyudun. ` + son.map((g) => `${s(g.yat)}-${s(g.kalk)} (${g.sure.toFixed(1)} sa)`).join(", ") +
+    (ort < 6.5 ? ". Biraz az, mesai oncesi en az 7 saat iyi olur." : ".");
+}
+
+// --- Hafiza: unut / listele ---
+async function hafiza(env, a = {}) {
+  const notlar = await kvOku(env, "notlar", []);
+  if (a.unut) {
+    const k = String(a.unut).toLowerCase();
+    const kalan = notlar.filter((n) => !n.toLowerCase().includes(k));
+    await kvYaz(env, "notlar", kalan);
+    return `${notlar.length - kalan.length} bilgiyi unuttum.`;
+  }
+  return notlar.length ? "Hakkinda bildiklerim: " + notlar.slice(-25).join("; ") : "Henuz kayitli bilgi yok.";
+}
+
+// --- Gece kendi kendine ogrenme ---
+async function geceOgren(env) {
+  const konular = ["Remotion ile video kurgusunda az bilinen bir teknik", "YouTube Shorts algoritmasinin son guncellemeleri", "freelance video editorlerin fiyatlandirma taktikleri",
+    "Valorant lineup videolarinda izleyiciyi tutan kurgu hileleri", "telefonla verimli calisma ve zaman yonetimi ipucu", "yapay zeka ile video kurgusunda yeni ucretsiz araclar"];
+  const konu = konular[new Date().getUTCDate() % konular.length];
+  const r = await arastir(env, konu + " hakkinda bugun ogrenilecek tek, somut ve uygulanabilir bir bilgi nedir? 3 cumle.");
+  await kvYaz(env, "gece_ogrenilen", { tarih: trSimdi().tarih, konu, metin: r.metin.slice(0, 700) });
+  await gunlukEkle(env, "Gece öğrendim: " + konu);
+}
+
+// --- Hafiza yedegi (GitHub, ozel repo) ---
+async function yedekAl(env) {
+  const anahtarlar = ["notlar", "isler", "musteri_kartlari", "harcamalar", "onemli_tarihler", "portfolyo", "yapacaklar", "alarm_ayari", "haftalik_hedef", "uyku", "musteri_adaylari", "konum"];
+  const veri = {};
+  for (const k of anahtarlar) veri[k] = await kvOku(env, k, null);
+  const yol = `/repos/${SABLON_REPO}/contents/yedek/hafiza.json`;
+  let sha;
+  try { sha = (await gh(env, yol + "?ref=yedek")).sha; } catch (e) {}
+  if (!sha) { // ayri bir 'yedek' dali (ilk sefer olustur)
+    try { const ana = await gh(env, `/repos/${SABLON_REPO}/git/ref/heads/main`); await gh(env, `/repos/${SABLON_REPO}/git/refs`, { method: "POST", body: JSON.stringify({ ref: "refs/heads/yedek", sha: ana.object.sha }) }); } catch (e) {}
+  }
+  await gh(env, yol, { method: "PUT", body: JSON.stringify({ message: "Gece hafiza yedegi " + trSimdi().tarih, content: b64Yap(JSON.stringify(veri, null, 1)), branch: "yedek", ...(sha ? { sha } : {}) }) });
+}
+
+// --- Saatlik kontroller (yeni ozellikler) ---
+async function yeniSaatlik(env) {
+  const z = trSimdi();
+  const sa = z.saat.slice(0, 2);
+  // Dolar alarmi
+  try {
+    const al = await kvOku(env, "dolar_alarm", null);
+    if (al) {
+      const kur = await kurAl(env);
+      if ((al.yon === "ustu" && kur >= al.kur) || (al.yon === "alti" && kur <= al.kur)) {
+        await bildirimEkle(env, `Dolar alarmı: ${kur.toFixed(2)} TL 💵`, `Belirlediğin ${al.kur} TL seviyesi ${al.yon === "ustu" ? "geçildi" : "altına inildi"}.`, "");
+        await kvSil(env, "dolar_alarm");
+      }
+    }
+  } catch (e) {}
+  // Onemli tarihler (09:00)
+  if (sa === "09" && (await kvOku(env, "son_tarih_kontrol", "")) !== z.tarih) {
+    await kvYaz(env, "son_tarih_kontrol", z.tarih);
+    const bugun = z.tarih.slice(8, 10) + "." + z.tarih.slice(5, 7);
+    const yarin = new Date(Date.now() + 27 * 3600e3).toISOString();
+    const yarinS = yarin.slice(8, 10) + "." + yarin.slice(5, 7);
+    for (const t of await kvOku(env, "onemli_tarihler", [])) {
+      const s = t.gun + "." + t.ay;
+      if (s === bugun) await bildirimEkle(env, "Bugün: " + t.ad + " 🎉", "Unutma!", "");
+      else if (s === yarinS) await bildirimEkle(env, "Yarın: " + t.ad, "Hazırlık yapmak istersen bugün iyi bir gün.", "");
+    }
+  }
+  // Mesai cikisi hava uyarisi (21:00)
+  if (sa === "21" && (await kvOku(env, "son_cikis_hava", "")) !== z.tarih) {
+    await kvYaz(env, "son_cikis_hava", z.tarih);
+    try {
+      const k = await konumAl(env);
+      const j = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${k.lat}&longitude=${k.lon}&hourly=precipitation_probability,temperature_2m,wind_speed_10m&timezone=Europe%2FIstanbul&forecast_days=1`)).json();
+      const i = j.hourly.time.findIndex((t) => t.endsWith("22:00"));
+      if (i >= 0) {
+        const y = j.hourly.precipitation_probability[i], d = Math.round(j.hourly.temperature_2m[i]), r = Math.round(j.hourly.wind_speed_10m[i]);
+        if (y >= 40 || d <= 8 || r >= 35)
+          await bildirimEkle(env, "Mesai çıkışı hatırlatma ☔", `22:00'de ${d}°C` + (y >= 40 ? `, yağmur ihtimali %${y} - şemsiye al` : "") + (r >= 35 ? `, rüzgar ${r} km/s` : "") + (d <= 8 ? ", hava soğuk - mont" : "") + ".", "");
+      }
+    } catch (e) {}
+  }
+  // Teslime 24 saat kala geri sayim
+  try {
+    const isler = await kvOku(env, "isler", []);
+    let degisti = false;
+    for (const i of isler) {
+      if (i.durum === "yapiliyor" && i.teslim && !i.uyari24 && i.teslim - Date.now() < 24 * 3600e3 && i.teslim > Date.now()) {
+        i.uyari24 = true; degisti = true;
+        await bildirimEkle(env, "Teslime 24 saatten az kaldı ⏳", `${i.musteri}: ${i.aciklama}`, "");
+      }
+    }
+    if (degisti) await kvYaz(env, "isler", isler);
+  } catch (e) {}
+  // Sessiz musteri: aktif isi olan musteriden 3 gundur ses yoksa (gunde bir, 11:00)
+  if (sa === "11" && (await kvOku(env, "son_sessiz_kontrol", "")) !== z.tarih) {
+    await kvYaz(env, "son_sessiz_kontrol", z.tarih);
+    try {
+      const kartlar = await kvOku(env, "musteri_kartlari", {});
+      for (const ad of Object.keys(kartlar)) {
+        const t = await kvOku(env, "son_temas_" + ad, 0);
+        if (t && Date.now() - t > 3 * 864e5 && Date.now() - t < 10 * 864e5)
+          await bildirimEkle(env, kartlar[ad].ad + " 3 gündür sessiz", "Nazik bir takip mesajı ister misin? Jarvis'e '" + kartlar[ad].ad + " için takip mesajı yaz' de.", "");
+      }
+    } catch (e) {}
+  }
+}
+
 // ---------------- Arac secimi: her mesaja sadece ilgili araclar gider (Groq ucretsiz limitine sigmak icin) ----------------
 const ARAC_GRUPLARI = [
   [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir"]],
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle"]],
   [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
-  [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol"]],
+  [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
+  [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price/i, ["musteri_kart", "teklif_hesapla"]],
+  [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
+  [/hedef|hafta/i, ["haftalik_hedef"]],
+  [/dolar|kur|euro|döviz|doviz/i, ["dolar_alarm"]],
+  [/doğum|dogum|yıldönüm|yildonum|önemli tarih|onemli tarih|bayram/i, ["onemli_tarih"]],
+  [/uyku|uyudum|uyuyor|yorgun|kaç saat|kac saat/i, ["uyku_ozeti"]],
+  [/hatırla|hatirla|unut|biliyor musun|hakkımda|hakkimda|hafıza|hafiza/i, ["hafiza"]],
   [/fikir|valorant|yama|meta|lineup|twitch|klip|yayın|yayin|kick/i, ["fikir_uret", "klip_bul"]],
   [/mail|posta|gmail|takvim|randevu|toplantı|toplanti|etkinlik/i, ["mail_kontrol", "takvime_ekle"]],
   [/para|kazan|gelir|ödeme|odeme|ücret|ucret|hedef|\$|dolar|tl\b|iş ekle|teslim/i, ["is_ekle", "is_guncelle", "gelir_ozeti", "haftalik_rapor"]],
@@ -1665,6 +1904,14 @@ function aracSec(metin) {
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
     { format: "shorts veya uzun", link: "video linki (opsiyonel)", dosya: "Drive'daki video adi veya 'son' (opsiyonel)", malzeme: "malzeme klasoru linki (opsiyonel)", musteri: "musteri stil adi (opsiyonel)", istek: "Eren'in ozel kurgu istekleri (opsiyonel)" }],
+  ["musteri_kart", "Musteri kartini gosterir/gunceller (fiyat, stil, kanal, iletisim, odeme yontemi, not); toplam is, odenen ve bekleyen para, son mesaj. Ad verilmezse tum musteriler.", { ad: "musteri adi", fiyat: "ornek '12$/short' (opsiyonel)", stil: "opsiyonel", kanal: "YouTube kanali (opsiyonel)", iletisim: "Discord vb. (opsiyonel)", odeme: "Payoneer vb. (opsiyonel)", not: "eklenecek not (opsiyonel)" }],
+  ["teklif_hesapla", "Video kurgu fiyat teklifi hesaplar ve musteriye Ingilizce + Turkce teklif mesaji hazirlar.", { adet: "video sayisi", sure_sn: "her videonun saniyesi", tur: "shorts veya uzun", acil: "acil mi (evet/hayir)", ekstra: "thumbnail vb. (opsiyonel)" }],
+  ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
+  ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
+  ["dolar_alarm", "Dolar/TL kurunu soyler; kur verilirse o seviye gecilince bildirim kurar.", { kur: "TL seviyesi (opsiyonel)" }],
+  ["onemli_tarih", "Dogum gunu gibi her yil tekrar eden onemli tarih ekler/listeler; bir gun once ve o gun hatirlatir.", { ad: "ornek 'Annemin dogum gunu'", tarih: "GG.AA" }],
+  ["uyku_ozeti", "Son gecelerin uyku saatlerini ve ortalamasini soyler.", {}],
+  ["hafiza", "Jarvis'in Eren hakkinda bildiklerini listeler ya da bir seyi unutturur.", { unut: "unutulacak bilginin bir kelimesi (opsiyonel)" }],
   ["mesai_modu", "Mesai modunu ayarlar: mesaide onemsiz bildirimler bekletilip mesai bitince ozet gelir. Kapatmak icin acik=false.", { acik: "true veya false" }],
   ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
@@ -1731,6 +1978,14 @@ async function aracCalistir(env, ad, a) {
       if (!malzeme && env.DRIVE_SCRIPT_URL) malzeme = "drive:malzeme/folders/";
       return await kurgula(env, ["kurgula", s(a.format) === "uzun" ? "uzun" : "shorts", link, malzeme, a.musteri ? "müşteri " + s(a.musteri) : "", s(a.istek)].join(" "));
     }
+    if (ad === "musteri_kart") return await musteriKart(env, a);
+    if (ad === "teklif_hesapla") return teklifHesapla(a);
+    if (ad === "harcama") return await harcama(env, a);
+    if (ad === "haftalik_hedef") return await haftalikHedef(env, a);
+    if (ad === "dolar_alarm") return await dolarAlarm(env, a);
+    if (ad === "onemli_tarih") return await onemliTarih(env, a);
+    if (ad === "uyku_ozeti") return await uykuOzeti(env);
+    if (ad === "hafiza") return await hafiza(env, a);
     if (ad === "mesai_modu") { const kapali = /false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mesai_kapali", kapali); return kapali ? "Mesai modu kapalı: bütün bildirimler hemen gelecek." : "Mesai modu açık: 13:00-22:00 arası sadece önemli bildirimler (GKey, ödeme, kurgu, hata) gelir, gerisi mesai bitince özet olarak gelir."; }
     if (ad === "sistem_durumu") return await saglikKontrol(env);
     if (ad === "kurgular") return await kurguListesi(env, env.__kok);
@@ -1916,7 +2171,7 @@ async function sohbetEt(env, metin, sesB64) {
       duydum = metin;
       if (!metin) return { duydum: "", cevap: "", sessiz: true, beyin: "sistem" };
       if (metin === "?") return { duydum: "", cevap: "Tam anlayamadım, tekrar söyler misin?", beyin: "sistem" };
-      if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
+      if (UYKU.test(metin)) { await uykuKaydet(env, "yat").catch(() => {}); } if (UYKU.test(metin)) return { duydum: metin, cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", bitis: true, uyku: true, beyin: "sistem" };
       if (BITIS.test(metin)) return { duydum: metin, cevap: "Görüşürüz Eren.", bitis: true, beyin: "sistem" };
       const kv = komut(metin);
       if ((kv && ["onayla", "iptal", "geri_al", "puan_iyi", "puan_kotu"].includes(kv)) || (!env.GROQ_API_KEY && !env.ANTHROPIC_API_KEY && (kv || (metin.length < 600 && (await niyetBul(env, metin)))))) return { duydum: metin, komut: true };
@@ -2002,6 +2257,8 @@ export default {
       return;
     }
     ctx.waitUntil((async () => {
+      try { await yedekAl(env); } catch (e) { await gunlukEkle(env, "Yedek alınamadı: " + e.message); }
+      try { await geceOgren(env); } catch (e) {}
       try { await veriKaydet(env); } catch (e) { await gunlukEkle(env, "Veri kaydı olmadı: " + e.message); }
       try {
         const sonuc = await kendiniGelistir(env);
@@ -2078,7 +2335,7 @@ export default {
     }
     if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
-      if (url.pathname === "/sabah") return Response.json(await sabahOzeti(env));
+      if (url.pathname === "/sabah") { await uykuKaydet(env, "kalk").catch(() => {}); return Response.json(await sabahOzeti(env)); }
       const son = parseInt(url.searchParams.get("son") || "0");
       return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });
     }
@@ -2170,6 +2427,7 @@ export default {
       const body = await request.json();
       let metin = body.metin || "";
 
+      if (UYKU.test(metin)) await uykuKaydet(env, "yat").catch(() => {});
       if (UYKU.test(metin)) return Response.json({ cevap: "İyi geceler Eren. Alarma kadar dinlemiyorum.", uyku: true, beyin: "sistem" });
       const linkVar = (metin.match(/https?:\/\/\S+/g) || []).find((l) => !l.includes("/folders/"));
       if (linkVar) await kvYaz(env, "son_link", linkVar);
