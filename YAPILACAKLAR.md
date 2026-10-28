@@ -70,3 +70,20 @@
 - Discord: discord_oku / discord_yaz araçları, saatlik yeni mesaj bildirimi (GKey öncelikli), müşteriye günde en fazla 2 mesaj kilidi. Gerekli: DISCORD_BOT_TOKEN, DISCORD_KANALLAR (virgüllü kanal id), ops. DISCORD_BENIM_AD.
 - Haftalık rapor: Pazar 23:00 otomatik + "haftalık rapor" aracı.
 - laptop/: Windows için "Jarvis" uyandırma kelimeli program (BASLAT.bat).
+- GKey stili (remotion-sablonlar/musteriler/gkey.md): nişan işareti, hedefe zoom, hook başlık, ilerleme çubuğu, flaş, otomatik ses efektleri. Kurgularken stil "gkey" ver.
+- Her kurguda otomatik kapak (thumbnail) + Gemini kalite kontrolü (puan, sorunlar) + başlık/hashtag + müşteriye teslim mesajı (EN+TR). "kurgu durumu" hepsini söyler.
+- toplu_kurgula (Drive/ham'daki tüm yeni videolar), oto_kurgu (ham'a düşen her video saatlik kendiliğinden kurgulanır).
+- HUD: SON KURGULAR paneli (kapaklarıyla) — "kurgular" de.
+- musteri_bul: potansiyel müşteri kanalları + kanala özel tanıtım mesajı (göndermez).
+- fikir_uret: güncel Valorant yamasına göre GKey için video fikirleri.
+- Ödeme takibi: teslimden 3 gün sonra ödenmemiş işler için 12:00 bildirimi.
+- İlan avı: 9 subreddit + RemoteOK / WeWorkRemotely / Jobicy.
+- Android (APK 12): video paylaş → Drive'a yükle; metin/link paylaş → Jarvis'e sor; bildirim panelinde "Jarvis" hızlı ayar kutucuğu.
+
+## Eren'in sabah kuracakları
+1. APK 12'yi kur (GitHub Jarvis → Releases → jarvis-app-12).
+2. Google köprüsü (Drive+Gmail+Takvim) → DRIVE_SCRIPT_URL, DRIVE_ANAHTAR (Cloudflare + GitHub remotion-sablonlar).
+3. CEREBRAS_API_KEY (Cloudflare).
+4. GEMINI_API_KEY GitHub remotion-sablonlar secret'ında olsun.
+5. Discord: DISCORD_BOT_TOKEN, DISCORD_KANALLAR (Cloudflare).
+6. İsteğe bağlı: AYLIK_HEDEF, PORTFOLYO_ILETISIM. Sonra ANTHROPIC_API_KEY.
