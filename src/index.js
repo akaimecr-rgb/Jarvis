@@ -340,6 +340,45 @@ async function revize(env, a = {}) {
   return `Kurgu #${run} için revizyonu başlattım: "${a.istek}". Değişen kısımlar: ${Object.keys(degisen).join(", ") || "yok"}. 5-10 dakikada yeni sürüm hazır olur.`;
 }
 
+// Uzun videodan Shorts cikar
+async function parcala(env, a = {}) {
+  let link = String(a.link || "");
+  if (!/^(https?:|drive:)/.test(link) && env.DRIVE_SCRIPT_URL) {
+    const f = await driveBul(env, String(a.dosya || "son")).catch(() => null);
+    if (f) link = "drive:" + f.id + ":" + f.name.replace(/[\s:]+/g, "_");
+  }
+  if (!link) link = await kvOku(env, "son_link", "");
+  if (!link) return "HATA: uzun videonun linki ya da Drive'daki adi gerekli.";
+  const adet = String(Math.max(1, Math.min(6, parseInt(a.adet || "3"))));
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/parcala.yml/dispatches`, {
+    method: "POST", body: JSON.stringify({ ref: "main", inputs: { video_url: link, adet, stil: String(a.stil || "").toLowerCase(), talimat: String(a.istek || "").slice(0, 500) } }),
+  });
+  await gunlukEkle(env, `Uzun videodan ${adet} Short çıkarma başladı`);
+  return `Uzun videoyu izleyip en iyi ${adet} anı seçiyorum, her birini ayrı Short olarak kurgulayacağım. Videonun uzunluğuna göre 15-40 dakika sürer. 'Parçalar hazır mı' diye sorabilirsin.`;
+}
+async function parcaDurumu(env, kok) {
+  const j = await gh(env, `/repos/${SABLON_REPO}/actions/workflows/parcala.yml/runs?per_page=1`);
+  const r = j.workflow_runs && j.workflow_runs[0];
+  if (!r) return "Henuz parcalama yapilmadi.";
+  if (r.status !== "completed") return "Parcalama hala calisiyor.";
+  if (r.conclusion !== "success") return { metin: "Parcalama hata verdi.", link: r.html_url };
+  const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/parca-${r.run_number}`);
+  const shortlar = (rel.assets || []).filter((x) => x.name.endsWith(".mp4"));
+  let ozet = [];
+  try { ozet = JSON.parse(await releaseDosyaEtiket(env, "parca-" + r.run_number, "parcalar.json")); } catch (e) {}
+  return { metin: `${shortlar.length} Short hazir. ` + ozet.map((p) => `${p.no}) ${p.baslik} (${p.bas}-${p.son}. saniye)`).join("; "), link: rel.html_url,
+    linkler: shortlar.map((x, i) => ({ ad: "SHORT " + (i + 1), url: x.browser_download_url })) };
+}
+async function releaseDosyaEtiket(env, etiket, ad) {
+  const rel = await gh(env, `/repos/${SABLON_REPO}/releases/tags/${etiket}`);
+  const a = (rel.assets || []).find((x) => x.name === ad);
+  if (!a) throw new Error(ad + " yok");
+  let r = await fetch(a.url, { headers: { Authorization: "Bearer " + env.GITHUB_TOKEN, Accept: "application/octet-stream", "User-Agent": "jarvis-worker" }, redirect: "manual" });
+  const yer = r.headers.get("location");
+  if (yer) r = await fetch(yer);
+  return r.text();
+}
+
 async function stilCikar(env, metin) {
   const linkler = metin.match(/(?:https?:\/\/|drive:)\S+/g) || [];
   if (!linkler.length) return "Örnek video linklerini de yaz. Örnek: stil çıkar shorts <link1> <link2> <link3>";
@@ -1912,7 +1951,8 @@ async function yeniSaatlik(env) {
 // ---------------- Arac secimi: her mesaja sadece ilgili araclar gider (Groq ucretsiz limitine sigmak icin) ----------------
 const ARAC_GRUPLARI = [
   [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir"]],
-  [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle"]],
+  [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle", "parcala", "parca_durumu"]],
+  [/parça|parca|uzun video|podcast|yayından|yayindan|böl|bol/i, ["parcala", "parca_durumu"]],
   [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
   [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
   [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price|fatura|invoice/i, ["musteri_kart", "teklif_hesapla", "fatura"]],
@@ -1974,6 +2014,8 @@ const ARACLAR = [
   ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
   ["revize", "Bitmis bir kurguyu (varsayilan son kurgu) Eren'in ya da musterinin revizyon istegine gore degistirip yeniden render alir. Ornek: 'yaziyi buyut', 'ilk 2 saniyeyi at', 'hook BIND MOLLY olsun'.", { istek: "ne degisecek", kurgu: "kurgu numarasi (opsiyonel)", format: "shorts veya uzun (opsiyonel)" }],
+  ["parcala", "Uzun bir videodan (podcast, yayin, YouTube videosu) en iyi anlari secip 1-6 ayri Short kurgular.", { link: "video linki (opsiyonel)", dosya: "Drive'daki video adi (opsiyonel)", adet: "kac Short (varsayilan 3)", stil: "stil adi (opsiyonel)", istek: "ozel istek (opsiyonel)" }],
+  ["parca_durumu", "Son parcalama isinin (uzun videodan Shorts) durumunu ve Short linklerini verir.", {}],
   ["toplu_kurgula", "Drive'daki Jarvis/ham klasorunde henuz kurgulanmamis butun videolari (en fazla 8) ayni anda kurguya yollar.", { stil: "musteri/stil adi, ornek gkey", format: "shorts veya uzun", adet: "en fazla kac video", istek: "ozel istekler (opsiyonel)" }],
   ["oto_kurgu", "Otomatik kurgu modunu acar/kapatir: acikken Drive/ham'a dusen her yeni video saatte bir kendiliginden kurgulanir.", { acik: "true veya false", stil: "stil adi, ornek gkey", format: "shorts veya uzun" }],
   ["fikir_uret", "Guncel Valorant yamasi ve metasina gore GKey icin lineup Shorts video fikirleri + GKey'e atilacak oneri mesaji (EN+TR) hazirlar.", { konu: "oyun/konu (opsiyonel, varsayilan Valorant)" }],
@@ -2052,6 +2094,8 @@ async function aracCalistir(env, ad, a) {
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
     if (ad === "revize") return await revize(env, a);
+    if (ad === "parcala") return await parcala(env, a);
+    if (ad === "parca_durumu") return await parcaDurumu(env, env.__kok);
     if (ad === "toplu_kurgula") return await topluKurgula(env, a);
     if (ad === "oto_kurgu") {
       const acik = !/false|kapat|hayir|0/i.test(String(a.acik));
