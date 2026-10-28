@@ -52,6 +52,11 @@ class WakeService : Service(), RecognitionListener {
     private val bildirimDongusu = object : Runnable {
         override fun run() {
             Thread { bildirimCek() }.start()
+            val p = getSharedPreferences("jarvis", MODE_PRIVATE)
+            if (p.getBoolean("uyku", false) && System.currentTimeMillis() - p.getLong("uyku_zaman", 0) > 10 * 3600 * 1000L) {
+                p.edit().putBoolean("uyku", false).apply()   // uyku 10 saati gecti: tekrar dinle
+                if (calisiyor) dinle()
+            }
             ana.postDelayed(this, 10 * 60 * 1000L)
         }
     }

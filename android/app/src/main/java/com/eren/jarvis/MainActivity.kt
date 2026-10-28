@@ -24,6 +24,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!intent.getBooleanExtra("ayar", false) && Ayarlar.sifre(this).isNotEmpty()) {
+            // Uygulamayi kendin actiysan uyanmissin demektir: uyku modu biter
+            getSharedPreferences("jarvis", MODE_PRIVATE).edit().putBoolean("uyku", false).apply()
             servisKomutu(this, WakeService.BASLAT)
             startActivity(Intent(this, JarvisActivity::class.java))
             finish()

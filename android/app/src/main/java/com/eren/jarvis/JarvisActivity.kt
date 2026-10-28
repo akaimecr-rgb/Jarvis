@@ -120,7 +120,7 @@ class JarvisActivity : Activity() {
         }
         @JavascriptInterface fun sustur() { tts?.stop() }
         @JavascriptInterface fun uyku() {
-            getSharedPreferences("jarvis", MODE_PRIVATE).edit().putBoolean("uyku", true).apply()
+            getSharedPreferences("jarvis", MODE_PRIVATE).edit().putBoolean("uyku", true).putLong("uyku_zaman", System.currentTimeMillis()).apply()
             runOnUiThread { finish() }
         }
         @JavascriptInterface fun ac(url: String) {
@@ -144,7 +144,10 @@ class JarvisActivity : Activity() {
         }
         tts?.shutdown()
         web.destroy()
-        if (!getSharedPreferences("jarvis", MODE_PRIVATE).getBoolean("uyku", false)) servisKomutu(this, WakeService.DEVAM)
+        val p = getSharedPreferences("jarvis", MODE_PRIVATE)
+        // Uyku modu en fazla 10 saat surer (alarm calmasa bile kendiliginden biter)
+        if (p.getBoolean("uyku", false) && System.currentTimeMillis() - p.getLong("uyku_zaman", 0) > 10 * 3600 * 1000L) p.edit().putBoolean("uyku", false).apply()
+        if (!p.getBoolean("uyku", false)) servisKomutu(this, WakeService.DEVAM)
         else servisKomutu(this, WakeService.DURAKLAT)
         super.onDestroy()
     }
