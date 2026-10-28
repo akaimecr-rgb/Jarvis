@@ -99,3 +99,10 @@
 - Telegram: TELEGRAM_BOT_TOKEN ekle → tarayıcıda jarviss.akaimecr.workers.dev/telegram-kur?s=<Jarvis şifresi> aç → botu açıp şifreyi yaz. Yazı + sesli mesaj, bildirimler oraya da gelir.
 - Twitch: TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET (dev.twitch.tv) → klip_bul. Kurgu artık Twitch/Kick/TikTok/YouTube linklerinden de indirir (YouTube GitHub'da bazen engellenir). "klip" stili: yatay klibi dikeye sığdırır.
 - Ajan artık her mesaja sadece ilgili araçları yolluyor (Groq limiti), bu liste sadece sorulunca okunuyor.
+
+## 28 Ekim akşam — 30 özellik turu
+- İş: musteri_kart, teklif_hesapla (EN+TR), fatura (invoice sayfası /fatura/..), musteri_raporu, sessiz müşteri takibi (3 gün), teslime 24 saat kala uyarı, kanal_istatistik (YOUTUBE_API_KEY).
+- Hayat: harcama, haftalik_hedef, dolar_alarm, onemli_tarih, uyku_ozeti (iyi geceler/uyandım), mola, 21:00 mesai çıkışı hava uyarısı, ruh hali farkındalığı.
+- Jarvis: hafiza (listele/unut), gece kendi kendine öğrenme (sabah anlatır), gece hafıza yedeği (remotion-sablonlar 'yedek' dalı).
+- Kurgu: 3-2-1 geri sayım, sonda TAKİP ET, konuşurken müzik kısma, karanlık videoda otomatik renk, dil algılama + "İngilizce altyazı" talimatı, 3 alternatif başlık/hook, "kare"/"yatay" ek formatlar, parcala (uzun videodan 1-6 Short, CI'da test edildi).
+- Yapılmayan (APK gerekir): telefon ayarlarını sesle değiştirme, internetsiz yerel mod.
