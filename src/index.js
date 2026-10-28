@@ -1643,6 +1643,24 @@ async function sabahOzeti(env) {
   return { cevap, ekran };
 }
 
+// ---------------- Arac secimi: her mesaja sadece ilgili araclar gider (Groq ucretsiz limitine sigmak icin) ----------------
+const ARAC_GRUPLARI = [
+  [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir"]],
+  [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle"]],
+  [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
+  [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol"]],
+  [/fikir|valorant|yama|meta|lineup|twitch|klip|yayın|yayin|kick/i, ["fikir_uret", "klip_bul"]],
+  [/mail|posta|gmail|takvim|randevu|toplantı|toplanti|etkinlik/i, ["mail_kontrol", "takvime_ekle"]],
+  [/para|kazan|gelir|ödeme|odeme|ücret|ucret|hedef|\$|dolar|tl\b|iş ekle|teslim/i, ["is_ekle", "is_guncelle", "gelir_ozeti", "haftalik_rapor"]],
+  [/hava|yağmur|yagmur|deprem|yakın|yakin|açık|acik|kafe|market|eczane|konum|nerede|plan|bugün|bugun|yarın|yarin|izin|boş|bos|saat/i, ["hava", "depremler", "yakin_yerler", "konum_ayarla", "gunluk_plan", "izin_gunu"]],
+  [/alarm|uyandır|uyandir|sabah|mesai|bildirim|yapacak|temizle|rapor|hafta/i, ["alarm", "mesai_modu", "yapacaklari_temizle", "haftalik_rapor"]],
+];
+function aracSec(metin) {
+  const ad = new Set();
+  for (const [re, l] of ARAC_GRUPLARI) if (re.test(metin)) l.forEach((x) => ad.add(x));
+  return ARACLAR.filter((t) => ad.has(t.function.name));
+}
+
 // ---------------- Ajan: gorevi araclarla adim adim yapar ----------------
 const ARACLAR = [
   ["kurgula", "Bir videoyu Remotion ile kurgular (bulutta, 5-10 dk). Video linki yoksa Drive'daki dosya adini ver ya da 'son' yaz.",
@@ -1791,12 +1809,13 @@ async function ajanDongu(env, sistem, son, sg) {
     "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
     "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
+  const secili = aracSec(son.filter((x) => x.role === "user").slice(-2).map((x) => String(x.content)).join(" "));
   let link = null, linkler = null, ekran = null;
   for (let adim = 0; adim < 5; adim++) {
     const r = await fetch(sg.url, {
       method: "POST",
       headers: { Authorization: "Bearer " + sg.anahtar, "content-type": "application/json" },
-      body: JSON.stringify({ model, messages: mesajlar, tools: ARACLAR, tool_choice: "auto", max_tokens: 900, temperature: 0.6,
+      body: JSON.stringify({ model, messages: mesajlar, tools: secili, tool_choice: "auto", max_tokens: 900, temperature: 0.6,
         ...(model.includes("gpt-oss") ? { reasoning_effort: env.AJAN_DUSUNME || "medium" } : {}) }),
     });
     if (!r.ok) throw new Error("Ajan " + r.status);
@@ -1884,7 +1903,9 @@ async function sohbetEt(env, metin, sesB64) {
   const bekleyenKod = await kvOku(env, "bekleyen_kod", null);
   const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "") +
     anlik +
-    (plan ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan : "") +
+    (plan && /yapılacak|yapilacak|plan|özellik|ozellik|ne ekledin|neler ekledin|neler var|ne yapabilir|yeni ne|liste|kurulum|anahtar|key/i.test(metin + " " + (gecmis.slice(-2).map((g) => g.content).join(" ")))
+      ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan
+      : "\n\n(Ortak yapilacaklar/ozellik listesi Eren 'neler ekledin, ne yapabilirsin' gibi sorarsa gosterilir.)") +
     (bekleyenKod ? "\n\nONAY BEKLEYEN KOD DEGISIKLIGIN: " + bekleyenKod.ozet + (bekleyenKod.neden ? " (" + bekleyenKod.neden + ")" : "") +
       ". Uygun bir anda Eren'e bundan bahset ve 'onayla' ya da 'iptal' demesini iste." : "");
   let cevap, beyin, duydum = metin, ajanLink = null, ajanLinkler = null, ajanEkran = null;
