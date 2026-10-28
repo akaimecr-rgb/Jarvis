@@ -1476,6 +1476,7 @@ async function telegramIsle(env, u, kok) {
   const c = await sohbetEt(env, metin);
   const linkler = [...(c.link ? [{ ad: "Aç", url: c.link }] : []), ...(c.linkler || [])];
   await tgGonder(env, (m.voice ? "🎙 " + metin + "\n\n" : "") + (c.cevap || "..."), linkler);
+  if (c.ekran && c.ekran.kopyala) await tgGonder(env, c.ekran.kopyala); // ayri mesaj: uzun basip kopyalamasi kolay olsun
 }
 
 async function bildirimEkle(env, baslik, metin, link) {
@@ -1584,6 +1585,24 @@ async function discordOku(env, a = {}) {
   }
   return "Discord mesajlari (Ingilizceleri Eren'e Turkce ozetle, cevap gerekiyorsa Ingilizce taslak + Turkce cevirisini ver; Eren 'gonder' demeden gonderme): " + cikti.join(" || ");
 }
+// Ozel mesaj (DM) icin: Eren kendi hesabindan gonderir; Jarvis metni kopyalanabilir yapar ve sohbeti acar
+async function dmHazirla(env, a = {}) {
+  const ad = String(a.kisi || "gkey").toLowerCase();
+  const kartlar = await kvOku(env, "musteri_kartlari", {});
+  const k = kartlar[ad] || { ad: a.kisi || "GKey", notlar: [] };
+  if (a.dm_link && /discord\.com\/channels\/@me\/\d+/.test(a.dm_link)) { k.dm = a.dm_link.match(/https:\/\/discord\.com\/channels\/@me\/\d+/)[0]; kartlar[ad] = k; await kvYaz(env, "musteri_kartlari", kartlar); }
+  if (!a.mesaj) return k.dm ? "DM linki kayitli." : "DM linki kaydedildi.";
+  const sayKey = "dm_say_" + ad + "_" + trSimdi().tarih;
+  const say = await kvOku(env, sayKey, 0);
+  if (say >= 2 && !a.zorla) return "DUR: " + k.ad + "'e bugun zaten 2 mesaj gitti (gunde en fazla 1-2 kurali). Eren israr ederse zorla:true ile tekrar cagir.";
+  await kvYaz(env, sayKey, say + 1);
+  await kvYaz(env, "son_temas_" + ad, Date.now());
+  await gunlukEkle(env, k.ad + "'e mesaj hazırlandı: " + String(a.mesaj).slice(0, 50));
+  const dm = k.dm || "https://discord.com/channels/@me";
+  return { metin: "Mesaj kopyalanmaya hazir. Eren KOPYALA'ya basip Discord'da yapistiracak" + (k.dm ? "." : " (GKey sohbetinin linkini bir kez verirse direkt o sohbet acilir: Discord'da sohbete sag tik/uzun bas > Linki kopyala)."),
+    ekran: { kopyala: String(a.mesaj), ac: dm }, linkler: [{ ad: "DISCORD'U AÇ", url: dm }] };
+}
+
 async function discordYaz(env, a = {}) {
   if (!env.DISCORD_BOT_TOKEN) return "HATA: Discord bagli degil.";
   const k = a.kanal || discordKanallar(env)[0];
@@ -2126,7 +2145,7 @@ const ARAC_GRUPLARI = [
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle", "parcala", "parca_durumu"]],
   [/parça|parca|uzun video|podcast|yayından|yayindan|böl|bol/i, ["parcala", "parca_durumu"]],
   [/ilan|iş|is bul|başvur|basvur|müşteri|musteri|reddit|teklif|freelance|fiverr|upwork/i, ["ilanlar", "ilan_ara", "ilan_detay", "basvuru_yaz", "musteri_bul"]],
-  [/gkey|discord|mesaj|yaz(dı|di)|cevap/i, ["discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
+  [/gkey|discord|mesaj|yaz(dı|di)|cevap|gönder|gonder|dm/i, ["dm_gonder", "discord_oku", "discord_yaz", "fikir_uret", "mail_kontrol", "musteri_kart"]],
   [/müşteri|musteri|kart|fiyat|teklif|kaç para|kac para|ücret|ucret|price|fatura|invoice/i, ["musteri_kart", "teklif_hesapla", "fatura"]],
   [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
   [/hedef|hafta/i, ["haftalik_hedef", "musteri_raporu"]],
@@ -2195,6 +2214,7 @@ const ARACLAR = [
   ["gunluk_plan", "Bugunun planini cikarir (vardiya, hatirlatmalar, takvim, yapilacaklar) ve ekranda gosterir.", {}],
   ["izin_gunu", "Bir gunu izin gunu olarak kaydeder (o gun vardiya planlanmaz).", { gun: "bugun, yarin veya obur gun" }],
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
+  ["dm_gonder", "Eren 'gonder' dediginde, GKey gibi birine Discord OZEL MESAJ icin: mesaji ekranda KOPYALA butonuyla verir ve Discord sohbetini acar (Eren kendisi yapistirip gonderir). Ayrica bir kez verilen DM linkini kaydeder. Ingilizce mesajin Turkcesini Eren'e onceden goster.", { kisi: "kime (varsayilan gkey)", mesaj: "gonderilecek nihai metin", dm_link: "discord.com/channels/@me/... linki (opsiyonel)" }],
   ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
   ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
   ["revize", "Bitmis bir kurguyu (varsayilan son kurgu) Eren'in ya da musterinin revizyon istegine gore degistirip yeniden render alir. Ornek: 'yaziyi buyut', 'ilk 2 saniyeyi at', 'hook BIND MOLLY olsun'.", { istek: "ne degisecek", kurgu: "kurgu numarasi (opsiyonel)", format: "shorts veya uzun (opsiyonel)" }],
@@ -2314,6 +2334,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "klip_bul") return await klipBul(env, a);
     if (ad === "musteri_bul") return await musteriBul(env, a);
     if (ad === "haftalik_rapor") return await haftalikRapor(env);
+    if (ad === "dm_gonder") return await dmHazirla(env, a);
     if (ad === "discord_oku") return await discordOku(env, a);
     if (ad === "discord_yaz") return await discordYaz(env, a);
     if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));

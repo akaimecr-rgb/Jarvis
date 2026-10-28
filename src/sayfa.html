@@ -340,7 +340,12 @@ setInterval(bildirimKontrol,60000);
 // ---------------- Dinamik sag panel (hava / deprem / yerler / plan) ----------------
 var sagMod="hava",sagZaman=null;
 function haritaAc(lat,lon,ad){var u="https://www.google.com/maps/search/?api=1&query="+lat+","+lon;if(window.Android&&Android.ac)Android.ac(u);else window.open(u,"_blank")}
+function eskiKopya(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(x){}a.remove()}
 function panelGoster(e){
+  if(e&&e.kopyala){var km=e.kopyala;var li3=gunlukYaz("","📋 Gönderilecek mesaj: "+km);var b3=document.createElement("button");b3.textContent="KOPYALA";
+    b3.style.cssText="display:block;width:auto;height:auto;min-height:0;margin:6px 0 2px;padding:6px 14px;font-size:12px;letter-spacing:1px;border:1px solid #22d3ee;background:#062030;color:#cffafe;border-radius:8px";
+    b3.onclick=function(){var ok=function(){b3.textContent="KOPYALANDI ✓";if(e.ac){if(window.Android&&Android.ac)Android.ac(e.ac);else window.open(e.ac,"_blank")}};
+      try{navigator.clipboard.writeText(km).then(ok,function(){eskiKopya(km);ok()})}catch(x){eskiKopya(km);ok()}};li3.lastChild.appendChild(b3);if(!e.panel)return}
   if(e&&e.ac){setTimeout(function(){if(window.Android&&Android.ac)Android.ac(e.ac);else window.open(e.ac,"_blank")},1200);if(!e.panel)return}
   if(!e||!e.panel)return;
   clearTimeout(sagZaman);
