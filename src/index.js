@@ -865,7 +865,7 @@ async function sesUret(env, metin) {
   // Cartesia ekliyse once o (Eren'in sectigi ses); SES_ONCELIK=eleven ile ElevenLabs one alinir
   if (env.CARTESIA_API_KEY && env.CARTESIA_VOICE_ID && env.SES_ONCELIK !== "eleven" && Date.now() > (await kvOku(env, "cartesia_kapali_kadar", 0))) {
     try { return { veri: await cartesiaSes(env, metin), tur: "audio/mpeg", kaynak: "cartesia" }; }
-    catch (e) { if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 6 * 3600e3); }
+    catch (e) { await kvYaz(env, "cartesia_son_hata", String(e.message || e).slice(0, 120)); if (/40[1-3]|429/.test(String(e))) await kvYaz(env, "cartesia_kapali_kadar", Date.now() + 6 * 3600e3); }
   }
   // 1) ElevenLabs (kota dolduysa 6 saat hic denenmez, bekletmez)
   if (env.ELEVENLABS_API_KEY && Date.now() > (await kvOku(env, "eleven_kapali_kadar", 0))) {
@@ -887,12 +887,12 @@ async function sesUret(env, metin) {
     const modeller = [env.TTS_MODEL, "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"].filter(Boolean);
     let sonHata;
     for (const model of modeller) {
-      try { return { veri: await sesUretModel(env, metin, model), tur: "audio/wav" }; } catch (e) { sonHata = e; }
+      try { return { veri: await sesUretModel(env, metin, model), tur: "audio/wav", kaynak: "gemini" }; } catch (e) { sonHata = e; }
     }
     if (/429|403|400/.test(String(sonHata))) await kvYaz(env, "tts_kapali_kadar", Date.now() + 30 * 60 * 1000);
   }
   // 3) Ucretsiz yedek: Google Ceviri sesi (kotasiz, telefonun ses motoruna gerek yok)
-  return { veri: await googleSes(metin), tur: "audio/mpeg" };
+  return { veri: await googleSes(metin), tur: "audio/mpeg", kaynak: "google" };
 }
 
 async function azureSes(env, metin) {
@@ -1061,11 +1061,15 @@ async function saglikKontrol(env) {
     }),
     dene("Azure ses", env.AZURE_SPEECH_KEY, async () => { await azureSes(env, "Test."); return "çalışıyor"; }),
     dene("Cartesia ses", env.CARTESIA_API_KEY, async () => { await cartesiaSes(env, "Test."); return "çalışıyor"; }),
+    dene("Ses zinciri (Jarvis'in konuştuğu ses)", true, async () => {
+      const t = Date.now(); const r = await sesUret(env, "Merhaba Eren, ses testi.");
+      return `${r.kaynak || (r.tur === "audio/wav" ? "gemini" : "google")} cevap verdi, ${((Date.now() - t) / 1000).toFixed(1)} sn`;
+    }),
     dene("GitHub (kurgu, kod)", env.GITHUB_TOKEN, async () => { const j = await gh(env, "/rate_limit"); return `${j.rate?.remaining} istek hakkı`; }),
     dene("Google köprüsü (Drive/Gmail/Takvim)", env.DRIVE_SCRIPT_URL, async () => { await kvSil(env, "drive_token").catch(() => {}); const b = await driveBilgi(env); if (!b) throw new Error("ayar eksik"); }),
     dene("Discord", env.DISCORD_BOT_TOKEN, async () => { const j = await discord(env, "/users/@me"); return j.username; }),
   ]);
-  const sira = ["Groq (beyin)", "Cerebras (yedek beyin)", "Gemini", "Claude", "ElevenLabs (ses)", "Azure ses", "Cartesia ses", "GitHub (kurgu, kod)", "Google köprüsü (Drive/Gmail/Takvim)", "Discord"];
+  const sira = ["Groq (beyin)", "Cerebras (yedek beyin)", "Gemini", "Claude", "ElevenLabs (ses)", "Azure ses", "Cartesia ses", "Ses zinciri (Jarvis'in konuştuğu ses)", "GitHub (kurgu, kod)", "Google köprüsü (Drive/Gmail/Takvim)", "Discord"];
   sonuc.sort((a, b) => sira.indexOf(a.ad) - sira.indexOf(b.ad));
   await kvYaz(env, "son_saglik", { zaman: Date.now(), sonuc });
   const bozuk = sonuc.filter((x) => x.durum === "bozuk");

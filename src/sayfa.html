@@ -209,7 +209,7 @@ async function konus(t){
   if(Date.now()<yedekSesKadar){await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
   var cumleler=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(x){return x.trim()}).filter(Boolean);
   var par=[];cumleler.forEach(function(c){var s=par[par.length-1];if(s&&s.length<160)par[par.length-1]=s+" "+c;else par.push(c)});
-  var istekler=par.map(function(p){return Promise.race([sesAl(p).catch(function(e){return null}),bekle(7000).then(function(){return null})])});
+  var istekler=par.map(function(p,i){return Promise.race([sesAl(p).catch(function(e){return null}),bekle(12000).then(function(){if(i===0&&!sesHatasiYazildi){sesHatasiYazildi=true;gunlukYaz("","Jarvis sesi 12 saniyede gelmedi, telefon sesi kullanılıyor.")}return null})])});
   var ilk=await istekler[0];
   if(!ilk){yedekSesKadar=Date.now()+60*1000;if(benim===sesSirasi)await tarayiciSesi(t);if(benim===sesSirasi)durum("hazir");return}
   await cal(ilk);
