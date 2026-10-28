@@ -1067,6 +1067,43 @@ async function fikirUret(env, a = {}) {
   return { metin: c, linkler: r.linkler };
 }
 
+// Twitch: yayincinin en cok izlenen son klipleri (Shorts icin ham malzeme)
+async function twitchToken(env) {
+  const on = await kvOku(env, "twitch_token", null);
+  if (on && on.bitis > Date.now()) return on.token;
+  const r = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${env.TWITCH_CLIENT_ID}&client_secret=${env.TWITCH_CLIENT_SECRET}&grant_type=client_credentials`, { method: "POST" });
+  if (!r.ok) throw new Error("Twitch giris " + r.status);
+  const j = await r.json();
+  await kvYaz(env, "twitch_token", { token: j.access_token, bitis: Date.now() + (j.expires_in - 600) * 1000 });
+  return j.access_token;
+}
+async function klipBul(env, a = {}) {
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return "HATA: Twitch bagli degil (TWITCH_CLIENT_ID ve TWITCH_CLIENT_SECRET gerekli, dev.twitch.tv'den ucretsiz).";
+  const H = { "Client-Id": env.TWITCH_CLIENT_ID, Authorization: "Bearer " + (await twitchToken(env)) };
+  const ad = String(a.yayinci || "").replace(/.*twitch\.tv\//, "").replace(/[^\w]/g, "").toLowerCase();
+  let id = "", oyun = "";
+  if (ad) {
+    const u = await (await fetch("https://api.twitch.tv/helix/users?login=" + ad, { headers: H })).json();
+    id = u.data?.[0]?.id;
+    if (!id) return "HATA: " + ad + " adinda Twitch yayincisi bulunamadi.";
+  } else {
+    const g = await (await fetch("https://api.twitch.tv/helix/games?name=" + encodeURIComponent(a.oyun || "VALORANT"), { headers: H })).json();
+    oyun = g.data?.[0]?.id;
+  }
+  const gun = Math.max(1, Math.min(+a.gun || 2, 30));
+  const bas = new Date(Date.now() - gun * 864e5).toISOString();
+  const q = (id ? "broadcaster_id=" + id : "game_id=" + oyun) + "&first=8&started_at=" + bas;
+  const c = await (await fetch("https://api.twitch.tv/helix/clips?" + q, { headers: H })).json();
+  const k = (c.data || []).sort((x, y) => y.view_count - x.view_count).slice(0, 6);
+  if (!k.length) return "Son " + gun + " gunde klip bulunamadi.";
+  await kvYaz(env, "son_klipler", k.map((x) => ({ url: x.url, baslik: x.title })));
+  return {
+    metin: `En cok izlenen klipler (son ${gun} gun): ` + k.map((x, i) => `${i + 1}) ${x.broadcaster_name}: "${x.title}" - ${x.view_count} izlenme, ${Math.round(x.duration)} sn`).join("; ") +
+      ". Eren 'su numarayi kurgula' derse kurgula aracina o klibin linkini ver.",
+    linkler: k.map((x, i) => ({ ad: "KLİP " + (i + 1), url: x.url })),
+  };
+}
+
 async function musteriBul(env, a = {}) {
   const nis = a.nis || "Valorant / FPS oyun";
   const r = await arastir(env, `Duzenli YouTube Shorts veya video yukleyen, 5 bin ile 200 bin abone arasi, ${nis} alaninda aktif 6 YouTube kanali bul. ` +
@@ -1640,6 +1677,7 @@ const ARACLAR = [
   ["toplu_kurgula", "Drive'daki Jarvis/ham klasorunde henuz kurgulanmamis butun videolari (en fazla 8) ayni anda kurguya yollar.", { stil: "musteri/stil adi, ornek gkey", format: "shorts veya uzun", adet: "en fazla kac video", istek: "ozel istekler (opsiyonel)" }],
   ["oto_kurgu", "Otomatik kurgu modunu acar/kapatir: acikken Drive/ham'a dusen her yeni video saatte bir kendiliginden kurgulanir.", { acik: "true veya false", stil: "stil adi, ornek gkey", format: "shorts veya uzun" }],
   ["fikir_uret", "Guncel Valorant yamasi ve metasina gore GKey icin lineup Shorts video fikirleri + GKey'e atilacak oneri mesaji (EN+TR) hazirlar.", { konu: "oyun/konu (opsiyonel, varsayilan Valorant)" }],
+  ["klip_bul", "Twitch'te bir yayincinin (ya da yayinci verilmezse Valorant kategorisinin) son gunlerdeki en cok izlenen kliplerini bulur. Shorts klipcilik icin.", { yayinci: "twitch kullanici adi (opsiyonel)", oyun: "oyun adi (opsiyonel, varsayilan VALORANT)", gun: "kac gun geriye (varsayilan 2)" }],
   ["musteri_bul", "Internetten Eren'e uygun potansiyel musteri YouTube kanallari bulur ve her birine ozel Ingilizce+Turkce tanitim mesaji taslagi yazar (gondermez).", { nis: "alan, ornek 'Valorant', 'CS2', 'psikoloji' (opsiyonel)" }],
   ["haftalik_rapor", "Son 7 gunun raporunu cikarir (isler, kazanc, hedef, ilanlar, Jarvis'in yaptiklari, oneriler).", {}],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
@@ -1715,6 +1753,7 @@ async function aracCalistir(env, ad, a) {
       return acik ? `Otomatik kurgu açık (${a.stil || "gkey"} stili). Drive/ham'a attığın her yeni video saatte bir kendiliğinden kurgulanacak.` : "Otomatik kurgu kapatıldı.";
     }
     if (ad === "fikir_uret") return await fikirUret(env, a);
+    if (ad === "klip_bul") return await klipBul(env, a);
     if (ad === "musteri_bul") return await musteriBul(env, a);
     if (ad === "haftalik_rapor") return await haftalikRapor(env);
     if (ad === "discord_oku") return await discordOku(env, a);
