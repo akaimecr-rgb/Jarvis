@@ -1154,6 +1154,35 @@ async function gelirOzeti(env) {
 }
 
 // ================= 7/24 OTONOM DONGU =================
+// ---------------- Discord (bot ile kanal okuma) ----------------
+async function discord(env, yol, ayar = {}) {
+  const r = await fetch("https://discord.com/api/v10" + yol, { ...ayar, headers: { Authorization: "Bot " + env.DISCORD_BOT_TOKEN, "content-type": "application/json", ...(ayar.headers || {}) } });
+  if (!r.ok) throw new Error("Discord " + r.status);
+  return r.json();
+}
+function discordKanallar(env) { return (env.DISCORD_KANALLAR || "").split(",").map((x) => x.trim()).filter(Boolean); }
+async function discordOku(env, a = {}) {
+  if (!env.DISCORD_BOT_TOKEN) return "HATA: Discord bagli degil. Eren'in DISCORD_BOT_TOKEN ve DISCORD_KANALLAR eklemesi gerekiyor.";
+  const kanallar = a.kanal ? [a.kanal] : discordKanallar(env);
+  if (!kanallar.length) return "HATA: Okunacak Discord kanali yok (DISCORD_KANALLAR bos).";
+  const cikti = [];
+  for (const k of kanallar.slice(0, 4)) {
+    try {
+      const m = await discord(env, `/channels/${k}/messages?limit=${Math.min(+a.adet || 10, 25)}`);
+      cikti.push(`Kanal ${k}: ` + m.reverse().map((x) => `${x.author.global_name || x.author.username}: ${(x.content || "[ek dosya]").slice(0, 200)}`).join(" | "));
+    } catch (e) { cikti.push(`Kanal ${k}: okunamadi (${e.message}). Bot o sunucuda olmayabilir.`); }
+  }
+  return "Discord mesajlari (Ingilizceleri Eren'e Turkce ozetle, cevap gerekiyorsa Ingilizce taslak + Turkce cevirisini ver; Eren 'gonder' demeden gonderme): " + cikti.join(" || ");
+}
+async function discordYaz(env, a = {}) {
+  if (!env.DISCORD_BOT_TOKEN) return "HATA: Discord bagli degil.";
+  const k = a.kanal || discordKanallar(env)[0];
+  if (!a.mesaj || !k) return "HATA: mesaj veya kanal yok.";
+  await discord(env, `/channels/${k}/messages`, { method: "POST", body: JSON.stringify({ content: a.mesaj.slice(0, 1900) }) });
+  await gunlukEkle(env, "Discord'a mesaj gonderildi: " + a.mesaj.slice(0, 60));
+  return "Gonderildi.";
+}
+
 async function saatlikIs(env) {
   const z = trSimdi();
   // 1) Yeni ilanlar
@@ -1203,6 +1232,24 @@ async function saatlikIs(env) {
       }
       await kvYaz(env, "bildirilen_mailler", goruldu.slice(-200));
     } catch (e) {}
+  }
+  // 3b) Discord'da yeni mesaj (ozellikle GKey)
+  if (env.DISCORD_BOT_TOKEN) {
+    for (const k of discordKanallar(env).slice(0, 4)) {
+      try {
+        const sonId = await kvOku(env, "discord_son_" + k, "");
+        const m = await discord(env, `/channels/${k}/messages?limit=10` + (sonId ? "&after=" + sonId : ""));
+        if (!m.length) continue;
+        await kvYaz(env, "discord_son_" + k, m[0].id);
+        if (!sonId) continue;
+        const benim = (env.DISCORD_BENIM_AD || "eren").toLowerCase();
+        const yeni = m.filter((x) => !x.author.bot && !(x.author.username || "").toLowerCase().includes(benim));
+        if (!yeni.length) continue;
+        const gkey = yeni.some((x) => /gkey/i.test(x.author.username + " " + (x.author.global_name || "")));
+        await bildirimEkle(env, (gkey ? "GKey Discord'dan yazdı! " : "Discord'da yeni mesaj ") + "(" + yeni.length + ")", (yeni[0].content || "").slice(0, 120), "");
+        await gunlukEkle(env, "Discord'da " + yeni.length + " yeni mesaj" + (gkey ? " (GKey)" : ""));
+      } catch (e) {}
+    }
   }
   // 4) Gunde bir kez (10:00) is icin internet arastirmasi
   if (z.saat.startsWith("10") && (await kvOku(env, "son_arastirma", "")) !== z.tarih) {
@@ -1269,6 +1316,8 @@ const ARACLAR = [
   ["gunluk_plan", "Bugunun planini cikarir (vardiya, hatirlatmalar, takvim, yapilacaklar) ve ekranda gosterir.", {}],
   ["izin_gunu", "Bir gunu izin gunu olarak kaydeder (o gun vardiya planlanmaz).", { gun: "bugun, yarin veya obur gun" }],
   ["neler_yaptin", "Jarvis'in son 24 saatte kendi basina yaptiklarini (sistem gunlugu) getirir.", {}],
+  ["discord_oku", "Eren'in bagli Discord kanallarindaki (GKey sunucusu vb.) son mesajlari okur.", { kanal: "kanal id (opsiyonel)", adet: "kac mesaj (opsiyonel)" }],
+  ["discord_yaz", "Discord kanalina mesaj gonderir. SADECE Eren taslagi gorup acikca 'gonder' dediyse kullan.", { mesaj: "gonderilecek metin", kanal: "kanal id (opsiyonel)" }],
   ["mail_kontrol", "Eren'in Gmail'indeki yeni/onemli mailleri getirir. Belirli birini aramak icin sorgu ver (ornek: from:gkey).", { sorgu: "Gmail arama sorgusu (opsiyonel)" }],
   ["takvime_ekle", "Google Takvim'e etkinlik ekler.", { istek: "etkinlik ve zamani, ornek: cuma 15te GKey toplantisi" }],
   ["is_ekle", "Yeni bir musteri isini kaydeder (ucret ve teslim tarihiyle). Teslimden 2 saat once hatirlatir.",
@@ -1328,6 +1377,8 @@ async function aracCalistir(env, ad, a) {
     if (ad === "izin_gunu") return await izinAyarla(env, s(a.gun));
     if (ad === "neler_yaptin") return await nelerYaptin(env);
     if (ad === "mail_kontrol") return await mailKontrol(env, a);
+    if (ad === "discord_oku") return await discordOku(env, a);
+    if (ad === "discord_yaz") return await discordYaz(env, a);
     if (ad === "takvime_ekle") return await takvimEkle(env, s(a.istek));
     if (ad === "is_ekle") return await isEkle(env, a);
     if (ad === "portfolyo_ekle") return await portfolyoEkle(env, a);
