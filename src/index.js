@@ -2289,6 +2289,16 @@ async function stilKontrol(env) {
 async function stilDurumu(env) {
   const sb = await kvOku(env, "stil_bekliyor", null);
   if (sb) { const r = await stilKontrol(env); if (r) return r; return `"${sb.ad}" stili hâlâ çıkarılıyor (${Math.round((Date.now() - sb.zaman) / 60000)} dakikadır). Genelde 5-10 dakika sürer.`; }
+  // Her zaman buluttaki gercek son kayda bak
+  try {
+    const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/stil.log?ref=stil-log`)).content);
+    const ad = (k.match(/ad=(\S+)/) || [])[1] || "?";
+    if (k.includes("SONUC: success")) return `Son stil çıkarma başarılı: "${ad}" stili hazır. Kurgularken "stil ${ad}" diyebilirsin.`;
+    if (/SONUC: (failure|cancelled)/.test(k)) {
+      const dh = (k.match(/DRIVE_HATA: (.*)/) || [])[1];
+      return `Son stil çıkarma ("${ad}") başarısız: ` + (dh ? "Drive'a girilemedi: " + dh : k.includes("GEMINI_KOTA") ? "Gemini kotası dolu." : k.includes("VIDEO_YOK") ? "örnek videolar indirilemedi." : "bilinmeyen hata.");
+    }
+  } catch (e) {}
   const s = await kvOku(env, "son_stil_sonucu", null);
   return s ? "Son stil çıkarma: " + s.metin : "Kayıtlı bir stil çıkarma işi yok.";
 }
