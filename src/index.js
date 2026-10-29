@@ -28,6 +28,8 @@ const SISTEM_TEMEL =
   "komutlarin dondurdugu bilgiyle bilirsin; Eren kurgunun durumunu sorarsa 'kurgu durumu' demesini soyle. " +
   "KENDI SISTEMIN (bunlari uydurma): Eren'in sesini yaziya Groq Whisper cevirir. Senin konusma sesin sirayla Cartesia -> ElevenLabs -> Azure -> Gemini -> Google sesiyle uretilir; hepsi olmazsa telefonun kendi sesi calar. " +
   "Hangi servisin calistigini bilmiyorsan tahmin etme, sistem_durumu aracini kullan ve sonucunu aynen soyle. " +
+  "YALAN YOK: Bir arac cagirmadan 'yapiyorum, tariyorum, yukluyorum, deniyorum, calisiyor' deme. Bir isin durumunu sorarsa durum aracini (stil_durumu, kurgu_durumu, claude_kod_durumu, drive) cagir; sonucu bilmiyorsan 'bilmiyorum, kontrol edeyim' de ve kontrol et. " +
+  "Yapamadigin bir sey icin 'yapamiyorum' deme; uygun arac yoksa claude_kod ile eklenebilecegini soyle. " +
   "RUH HALI: Eren yorgun, stresli, uzgun ya da sinirli gorunurse (kisa sert mesajlar, 'yoruldum', 'bıktım', gece gec saat, uzun mesai sonrasi) " +
   "once bunu fark et ve tek cumleyle yanında oldugunu hissettir; cevabini daha kisa ve sakin tut, ona yeni is yukleme, gerekiyorsa dinlenmesini oner. " +
   "Iyi bir haber oldugunda (odeme geldi, yeni musteri, hedefe yaklasti) icten kutla.";
@@ -432,6 +434,7 @@ async function stilCikar(env, metin) {
     body: JSON.stringify({ ref: "main", inputs: { format, ad, linkler: linkler.join(" ") } }),
   });
   await gunlukEkle(env, `Stil çıkarma başlatıldı (${ad || format})`);
+  await kvYaz(env, "stil_bekliyor", { ad: ad || format, zaman: Date.now() });
   return `${linkler.length} örnek videodan ${format} stilini çıkarıyorum. 5-10 dakika sürer. Bitince bundan sonraki kurgular bu stille yapılır.`;
 }
 
@@ -1856,6 +1859,7 @@ async function saatlikIs(env) {
   try { await yeniSaatlik(env); } catch (e) {}
   await indirKontrol(env);
   await nisKontrol(env);
+  await stilKontrol(env);
   // 3h) Claude Code isi bitti mi?
   try {
     const bk = await kvOku(env, "claude_kod_bekliyor", null);
@@ -2258,6 +2262,30 @@ function mdHtml(md) {
   return h;
 }
 
+// Stil cikarma bitti mi? Gercek sonucu (basari/hata sebebi) bildir
+async function stilKontrol(env) {
+  const sb = await kvOku(env, "stil_bekliyor", null);
+  if (!sb || Date.now() - sb.zaman < 90e3) return null;
+  try {
+    const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/stil.log?ref=stil-log`)).content);
+    if (!k.includes("ad=" + sb.ad) || !/SONUC: (success|failure|cancelled)/.test(k)) { if (Date.now() - sb.zaman > 40 * 60e3) await kvYaz(env, "stil_bekliyor", null); return null; }
+    await kvYaz(env, "stil_bekliyor", null);
+    const ok = k.includes("SONUC: success");
+    const sebep = k.includes("GEMINI_KOTA") ? "Gemini'nin ücretsiz kotası dolu, birkaç saat sonra tekrar dene." : k.includes("VIDEO_YOK") || k.includes("Ornek sayisi: 0") ? "Örnek video indirilemedi (Drive bağlantısı ya da klasör)." : k.includes("indirilemedi") ? "Bazı videolar Drive'dan indirilemedi." : "Bilinmeyen hata.";
+    const metin = ok ? `"${sb.ad}" stili hazır. Bundan sonra kurgularken stil ${sb.ad} diyebilirsin.` : `"${sb.ad}" stili çıkarılamadı: ${sebep}`;
+    await kvYaz(env, "son_stil_sonucu", { ad: sb.ad, ok, metin, zaman: Date.now() });
+    await bildirimEkle(env, ok ? "Stil hazır ✅ " + sb.ad : "Stil çıkarma başarısız ❌", metin, "");
+    await gunlukEkle(env, metin);
+    return metin;
+  } catch (e) { return null; }
+}
+async function stilDurumu(env) {
+  const sb = await kvOku(env, "stil_bekliyor", null);
+  if (sb) { const r = await stilKontrol(env); if (r) return r; return `"${sb.ad}" stili hâlâ çıkarılıyor (${Math.round((Date.now() - sb.zaman) / 60000)} dakikadır). Genelde 5-10 dakika sürer.`; }
+  const s = await kvOku(env, "son_stil_sonucu", null);
+  return s ? "Son stil çıkarma: " + s.metin : "Kayıtlı bir stil çıkarma işi yok.";
+}
+
 async function indirKontrol(env) {
   try {
     const ib = await kvOku(env, "indir_bekliyor", null);
@@ -2362,6 +2390,7 @@ async function yeniSaatlik(env) {
 const ARAC_GRUPLARI = [
   [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir", "duzelt"]],
   [/kelime|öğren|ogren|sözlük|sozluk|yanlış|yanlis|anlamad|hayır|hayir/i, ["kelime_ogret", "duzelt"]],
+  [/stil|still|kurgu|durum|ne oldu|bitti mi|nerede/i, ["stil_durumu", "stil_cikar", "kurgu_durumu", "drive"]],
   [/kod|ekran|arayüz|arayuz|tasarım|tasarim|renk|buton|panel|değiştir|degistir|ekle|özellik|ozellik|claude/i, ["claude_kod", "claude_kod_durumu"]],
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle", "parcala", "parca_durumu"]],
   [/parça|parca|uzun video|podcast|yayından|yayindan|böl|bol/i, ["parcala", "parca_durumu"]],
@@ -2424,6 +2453,7 @@ const ARACLAR = [
   ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
+  ["stil_durumu", "Stil cikarma isinin GERCEK durumunu (devam ediyor / hazir / basarisiz ve sebebi) verir. Eren stil ne oldu derse MUTLAKA bunu kullan, tahmin etme.", {}],
   ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Videolar link olarak ya da Drive'daki bir klasor (ornek 'gkey stil') olarak verilebilir; ikisi de yoksa Jarvis/ornek klasorunu kullanir.",
     { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)", klasor: "ornek videolarin oldugu Drive klasorunun adi (opsiyonel)" }],
   ["ilanlar", "Reddit'te bulunmus uygun video editor ilanlarini listeler.", {}],
@@ -2538,6 +2568,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "sistem_durumu") return await saglikKontrol(env);
     if (ad === "kurgular") return await kurguListesi(env, env.__kok);
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
+    if (ad === "stil_durumu") return await stilDurumu(env);
     if (ad === "stil_cikar") {
       let ls = s(a.linkler).split(/\s+/).filter(Boolean);
       if (!ls.length && env.DRIVE_SCRIPT_URL) {
@@ -2991,7 +3022,7 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
     }
     if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
-      if (url.pathname === "/bildirimler") { ctx.waitUntil(indirKontrol(env).catch(() => {})); ctx.waitUntil(nisKontrol(env).catch(() => {})); }
+      if (url.pathname === "/bildirimler") { ctx.waitUntil(indirKontrol(env).catch(() => {})); ctx.waitUntil(stilKontrol(env).catch(() => {})); ctx.waitUntil(nisKontrol(env).catch(() => {})); }
       if (url.pathname === "/sabah") { await uykuKaydet(env, "kalk").catch(() => {}); return Response.json(await sabahOzeti(env)); }
       const son = parseInt(url.searchParams.get("son") || "0");
       return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });
