@@ -1190,16 +1190,25 @@ async function baglam(env) {
 
 // Gemini + Google arama ile internet arastirmasi
 async function arastir(env, soru) {
-  const model = env.ARASTIRMA_MODEL || "gemini-flash-latest";
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: soru + "\n\nGuncel internet kaynaklarina dayanarak Turkce, kisa ve net cevap ver." }] }],
-      tools: [{ google_search: {} }],
-    }),
-  });
-  if (!r.ok) throw new Error("Arastirma " + r.status);
+  // Yogunlukta (429/503) bekleyip tekrar dene, sonra baska modele gec
+  const modeller = [env.ARASTIRMA_MODEL || "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"];
+  let r, son = "";
+  for (let i = 0; i < modeller.length * 2; i++) {
+    const model = modeller[Math.floor(i / 2)];
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: soru + "\n\nGuncel internet kaynaklarina dayanarak Turkce, kisa ve net cevap ver." }] }],
+        tools: [{ google_search: {} }],
+      }),
+    });
+    if (r.ok) break;
+    son = "Arastirma " + r.status;
+    if (r.status !== 429 && r.status !== 503 && r.status !== 500) break;
+    await new Promise((ok) => setTimeout(ok, i % 2 ? 300 : 1500));
+  }
+  if (!r.ok) throw new Error(son);
   const j = await r.json();
   const c = j.candidates?.[0];
   const metin = (c?.content?.parts || []).map((p) => p.text || "").join("").trim();
@@ -1258,13 +1267,28 @@ async function klipBul(env, a = {}) {
 
 async function musteriBul(env, a = {}) {
   const nis = a.nis || "Valorant / FPS oyun";
-  const r = await arastir(env, `Duzenli YouTube Shorts veya video yukleyen, 5 bin ile 200 bin abone arasi, ${nis} alaninda aktif 6 YouTube kanali bul. ` +
-    "Her biri icin: kanal adi, kanal linki, yaklasik abone sayisi, ne tur icerik yaptigi, kurgusunda gelistirilebilecek bir sey (or. altyazi yok, hook zayif), varsa is iletisim yolu (e-posta/Discord/Twitter). Uydurma; emin olmadigini yazma.");
+  let r;
+  try { r = await arastir(env, `Duzenli YouTube Shorts veya video yukleyen, 5 bin ile 200 bin abone arasi, ${nis} alaninda aktif 6 YouTube kanali bul. ` +
+    "Her biri icin: kanal adi, kanal linki, yaklasik abone sayisi, ne tur icerik yaptigi, kurgusunda gelistirilebilecek bir sey (or. altyazi yok, hook zayif), varsa is iletisim yolu (e-posta/Discord/Twitter). Uydurma; emin olmadigini yazma."); }
+  catch (e) {
+    // Google arama yogunsa: YouTube'da dogrudan ara, bulunan kanallari kullan
+    const sorgular = [nis + " shorts", nis + " tips shorts", nis + " lineup"];
+    const kanallar = new Map();
+    for (const q of sorgular) {
+      const y = await youtubeAra(env, { sorgu: q, adet: 8 }).catch(() => null);
+      if (y && y.metin) for (const m of y.metin.matchAll(/\d+\) (.*?) - (.*?) https:\/\/youtu\.be\/([\w-]{11})/g)) if (!kanallar.has(m[2])) kanallar.set(m[2], { kanal: m[2], ornek: m[1], video: "https://youtu.be/" + m[3] });
+    }
+    if (!kanallar.size) return "Su an hem Google aramasi yogun hem YouTube'a ulasamadim. Biraz sonra tekrar dene.";
+    r = { metin: "YouTube aramasindan bulunan kanallar (abone sayilari bilinmiyor, Eren kanala bakip karar versin): " + [...kanallar.values()].slice(0, 10).map((k) => `${k.kanal} (ornek video: "${k.ornek}" ${k.video})`).join("; "), linkler: [] };
+  }
   const sistem = "Sen Eren'in is gelistirme asistanisin. Eren Turkiye'de Valorant/oyun Shorts kurgulayan freelance editor, Ingilizce bilmiyor. " +
     "Asagidaki arastirmadan en uygun 3 kanali sec. SADECE JSON: {\"adaylar\":[{\"kanal\":\"\",\"link\":\"\",\"neden\":\"Turkce kisa\",\"iletisim\":\"\",\"mesaj_en\":\"kisa, samimi, kanala ozel, spam gibi olmayan Ingilizce tanitim mesaji (bedava 1 deneme kurgusu teklifi, portfolyo linki: " +
     (env.JARVIS_URL || "https://jarviss.akaimecr.workers.dev") + "/portfolyo)\",\"mesaj_tr\":\"mesaj_en'in Turkcesi\"}]}";
   let j;
+  const jsonAl = (t) => JSON.parse(String(t).replace(/^[^{]*/, "").replace(/[^}]*$/, ""));
   try { j = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: r.metin }], MODELLER(env).sohbet, { json: true })); }
+  catch (e0) { try { if (env.GROQ_API_KEY) j = jsonAl(await sorGroq(env, sistem + " Cevabin SADECE gecerli JSON olsun.", [{ role: "user", content: r.metin }])); } catch (e1) {} }
+  if (!j) try { throw new Error("taslak yok"); }
   catch (e) { return { metin: "Arastirma sonucu: " + r.metin.slice(0, 1500), linkler: r.linkler }; }
   const adaylar = (j.adaylar || []).slice(0, 3);
   const liste = await kvOku(env, "musteri_adaylari", []);
