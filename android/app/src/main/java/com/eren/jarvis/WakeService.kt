@@ -12,7 +12,6 @@ import android.os.Looper
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
 
 /** Arka planda "Jarvis" kelimesini dinler (Vosk, cevrimdisi, anahtarsiz). */
@@ -33,7 +32,12 @@ class WakeService : Service(), RecognitionListener {
         @Volatile var sonDuyulan = ""
     }
 
-    private var ss: SpeechService? = null
+    private var ss: Any? = null   // dinleme dongusu calisiyorsa dolu
+    @Volatile private var aktif = false
+    @Volatile private var nesil = 0
+    private val halka = ShortArray(16000 * 2)
+    private var halkaYer = 0
+    private fun sonKlip(): ShortArray { synchronized(halka) { val o = ShortArray(halka.size); for (i in halka.indices) o[i] = halka[(halkaYer + i) % halka.size]; return o } }
     private var tetiklendi = false
     private val ana = Handler(Looper.getMainLooper())
 
@@ -125,8 +129,28 @@ class WakeService : Service(), RecognitionListener {
                 Recognizer(m, 16000.0f, "[" + (kelimeler.ifEmpty { ADAYLAR } + "[unk]").joinToString(",") { "\"" + it + "\"" } + "]")
             } catch (_: Exception) { Recognizer(m, 16000.0f) }
             rec.setWords(true)
-            ss = SpeechService(rec, 16000.0f)
-            ss?.startListening(this)
+            // Kendi mikrofon dongumuz: hem Vosk'a verir hem son 2 saniyeyi saklar (sese ozel eslestirme icin)
+            aktif = true
+            val benim = ++nesil
+            val t = Thread {
+                val boy = maxOf(android.media.AudioRecord.getMinBufferSize(16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT), 8192)
+                @Suppress("MissingPermission")
+                val ar = try { android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, boy) } catch (e: Exception) { null }
+                if (ar == null || ar.state != android.media.AudioRecord.STATE_INITIALIZED) { durum = "mikrofon açılamadı"; ss = null; ana.postDelayed({ dinle() }, 5000); return@Thread }
+                val buf = ShortArray(1600)
+                try {
+                    ar.startRecording()
+                    while (aktif && benim == nesil) {
+                        val r = ar.read(buf, 0, buf.size)
+                        if (r <= 0) continue
+                        synchronized(halka) { for (i in 0 until r) { halka[halkaYer] = buf[i]; halkaYer = (halkaYer + 1) % halka.size } }
+                        if (rec.acceptWaveForm(buf, r)) { val j = rec.result; val klip = sonKlip(); ana.post { kontrol(j, klip) } }
+                    }
+                } catch (e: Exception) { durum = "dinleme hatası: " + e.message }
+                try { ar.stop() } catch (_: Exception) {}
+                ar.release(); try { rec.close() } catch (_: Exception) {}
+            }
+            ss = t; t.start()
             tetiklendi = false
             durum = "dinliyor (" + (if (kelimeler.isEmpty()) "serbest" else kelimeler.joinToString("/")) + ")"
         } catch (e: Exception) {
@@ -149,12 +173,13 @@ class WakeService : Service(), RecognitionListener {
     }
 
     private fun birak(yeniDurum: String) {
-        try { ss?.stop(); ss?.shutdown() } catch (_: Exception) {}
+        aktif = false
+        nesil++
         ss = null
         durum = yeniDurum
     }
 
-    private fun kontrol(json: String?) {
+    private fun kontrol(json: String?, klip: ShortArray? = null) {
         if (tetiklendi || json == null) return
         val metin = Regex("\"(partial|text)\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(2) ?: ""
         if (metin.isNotBlank() && metin != "[unk]") sonDuyulan = metin
@@ -171,7 +196,15 @@ class WakeService : Service(), RecognitionListener {
         if (metin.isNotBlank()) bildirimYaz("Son duyduğum: " + temiz.ifEmpty { "?" } + " (%" + (guven * 100).toInt() + ")")
         // Cumle icinde gecen benzer sesle uyanma: ifade SADECE uyandirma kelimesinden olusmali ([unk] yok, en fazla 2 kelime)
         val yalniz = !metin.contains("[unk]") && temiz.split(" ").size <= 2
-        if (yalniz && TETIK.matches(temiz) && guven >= esik) {
+        var sesUydu = true
+        if (yalniz && TETIK.matches(temiz) && guven >= esik && klip != null && SesEslestir.sayi(this) > 0) {
+            val pay = when (getSharedPreferences("jarvis", MODE_PRIVATE).getString("hassasiyet", "normal")) { "yuksek" -> 1.25f; "dusuk" -> 0.85f; else -> 1f }
+            val (ok, d) = SesEslestir.benzer(this, klip, pay)
+            sesUydu = ok
+            sonBildirimYazma = 0
+            bildirimYaz("Duydum: $temiz • ses eşleşmesi " + (if (ok) "✓" else "✗") + " (" + d.toInt() + "/" + (SesEslestir.esik(this) * pay).toInt() + ")")
+        }
+        if (yalniz && sesUydu && TETIK.matches(temiz) && guven >= esik) {
             tetiklendi = true
             ana.post {
                 birak("konuşuyor")

@@ -83,6 +83,7 @@ class MainActivity : Activity() {
             hd.text = "Uyanma hassasiyeti: " + hAd()
         }
         k.addView(hd)
+        k.addView(dugme("Sesimi öğret (" + SesEslestir.sayi(this) + " kayıt)") { startActivity(Intent(this, SesOgretActivity::class.java)) })
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#05080f")); addView(k) })

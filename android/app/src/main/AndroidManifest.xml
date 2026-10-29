@@ -38,6 +38,8 @@
             android:turnScreenOn="true"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <activity android:name=".SesOgretActivity" android:exported="false" />
+
         <activity
             android:name=".PaylasActivity"
             android:exported="true"
