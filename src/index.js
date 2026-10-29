@@ -1141,8 +1141,9 @@ async function groqDinle(env, b64, tur = "wav") {
   form.append("language", "tr");
   form.append("response_format", "verbose_json");
   form.append("temperature", "0");
-  form.append("prompt", env.DINLE_IPUCU ||
-    "Jarvis, Eren. Kurgula shorts, uzun video, Remotion, Whisper, GKey, Valorant, lineup, thumbnail, Drive, Discord, Reddit, ilanlar, başvuru yaz, stil çıkar, hatırlat, not al, alarm, kod, onayla, iptal, geri al.");
+  const sozluk = SOZLUK_TEMEL.concat(await kvOku(env, "sozluk", [])).map((x) => x.kelime).slice(-50).join(", ");
+  form.append("prompt", ((env.DINLE_IPUCU ||
+    "Jarvis, Eren. Kurgula shorts, uzun video, Remotion, GKey, Valorant, lineup, thumbnail, Drive, Discord, ilanlar, başvuru yaz, stil çıkar, hatırlat, not al, alarm, onayla, iptal, geri al, harita, Manavgat.") + (sozluk ? " " + sozluk + "." : "")).slice(0, 800));
   const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: "Bearer " + env.GROQ_API_KEY },
@@ -2136,6 +2137,40 @@ async function youtubeAra(env, a = {}) {
   };
 }
 
+// --- Kisisel sozluk ve duzeltmeler (Jarvis'in Eren'i daha iyi anlamasi icin) ---
+const SOZLUK_TEMEL = [
+  { kelime: "GKey", aciklama: "Eren'in ana musterisi, Valorant lineup Shorts", duyulan: "ciki, gi key, cikey" },
+  { kelime: "Baykalem", aciklama: "YouTuber" }, { kelime: "Songul", aciklama: "Eren'i sabah uyandiran kisi" },
+  { kelime: "Manavgat", aciklama: "Eren'in yasadigi yer" }, { kelime: "Tavuk Dunyasi", aciklama: "Eren'in calistigi restoran" },
+  { kelime: "lineup", aciklama: "Valorant'ta util atis noktasi", duyulan: "layn ap, laynap" }, { kelime: "Shorts" }, { kelime: "hook" },
+  { kelime: "Viper" }, { kelime: "Sova" }, { kelime: "Killjoy" }, { kelime: "Brimstone" }, { kelime: "KAY/O" }, { kelime: "Bind" }, { kelime: "Ascent" }, { kelime: "Haven" }, { kelime: "Lotus" },
+  { kelime: "Payoneer", aciklama: "Eren'in odeme hesabi" }, { kelime: "Remotion" }, { kelime: "Cartesia" },
+];
+async function kelimeOgret(env, a = {}) {
+  const l = await kvOku(env, "sozluk", []);
+  if (a.sil) { const k = l.filter((x) => x.kelime.toLowerCase() !== String(a.sil).toLowerCase()); await kvYaz(env, "sozluk", k); return `"${a.sil}" sozlukten silindi.`; }
+  if (!a.kelime) return l.length ? "Sozlukteki kelimeler: " + l.map((x) => x.kelime + (x.aciklama ? " (" + x.aciklama + ")" : "")).join(", ") : "Sozluk bos.";
+  const k = String(a.kelime).trim().slice(0, 40);
+  const yeni = l.filter((x) => x.kelime.toLowerCase() !== k.toLowerCase());
+  yeni.push({ kelime: k, aciklama: String(a.aciklama || "").slice(0, 100), duyulan: String(a.duyulan || "").slice(0, 40) });
+  await kvYaz(env, "sozluk", yeni.slice(-80));
+  return `"${k}" kelimesini ogrendim${a.duyulan ? " (bundan sonra \"" + a.duyulan + "\" duyarsam " + k + " oldugunu anlayacagim)" : ""}.`;
+}
+async function duzeltme(env, a = {}) {
+  const g = await kvOku(env, "gecmis", []);
+  const sonSen = [...g].reverse().find((x) => x.role === "user");
+  const l = await kvOku(env, "duzeltmeler", []);
+  l.push({ z: Date.now(), duyulan: String(a.duyulan || (sonSen && sonSen.content) || "").slice(0, 300), dogru: String(a.dogru || "").slice(0, 300) });
+  await kvYaz(env, "duzeltmeler", l.slice(-500));
+  return "Duzeltmeyi kaydettim, bundan ogrenecegim. Simdi dogru istegi yerine getir: " + a.dogru;
+}
+async function sozlukMetni(env) {
+  const l = SOZLUK_TEMEL.concat(await kvOku(env, "sozluk", []));
+  const d = (await kvOku(env, "duzeltmeler", [])).slice(-12);
+  return (l.length ? "\n\nERENIN KELIMELERI (bunlari duyarsan dogru yaz/anla): " + l.map((x) => x.kelime + (x.duyulan ? " (" + x.duyulan + " gibi duyulabilir)" : "") + (x.aciklama ? ": " + x.aciklama : "")).join("; ") : "") +
+    (d.length ? "\n\nGECMIS YANLIS ANLAMALAR (ayni hatayi yapma): " + d.map((x) => `"${x.duyulan}" degil "${x.dogru}"`).join("; ") : "");
+}
+
 // --- Buluttan video indirme (Drive'a koyar) ---
 async function videoIndir(env, a = {}) {
   let url = String(a.link || "").trim();
@@ -2255,7 +2290,8 @@ async function yeniSaatlik(env) {
 
 // ---------------- Arac secimi: her mesaja sadece ilgili araclar gider (Groq ucretsiz limitine sigmak icin) ----------------
 const ARAC_GRUPLARI = [
-  [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir"]],
+  [/./, ["kurgula", "kurgu_durumu", "hatirlat", "not_al", "arastir", "neler_yaptin", "sistem_durumu", "kendini_gelistir", "duzelt"]],
+  [/kelime|öğren|ogren|sözlük|sozluk|yanlış|yanlis|anlamad|hayır|hayir/i, ["kelime_ogret", "duzelt"]],
   [/kod|ekran|arayüz|arayuz|tasarım|tasarim|renk|buton|panel|değiştir|degistir|ekle|özellik|ozellik|claude/i, ["claude_kod", "claude_kod_durumu"]],
   [/kurgu|video|render|kapak|thumbnail|revize|revizyon|degistir|değiştir|stil|toplu|otomatik|drive|dosya|klasör|klasor|portf/i, ["kurgular", "revize", "toplu_kurgula", "oto_kurgu", "stil_cikar", "drive", "portfolyo_ekle", "parcala", "parca_durumu"]],
   [/parça|parca|uzun video|podcast|yayından|yayindan|böl|bol/i, ["parcala", "parca_durumu"]],
@@ -2300,6 +2336,8 @@ const ARACLAR = [
   ["mola", "Mesai disinda su/goz/esneme mola hatirlaticisini acar ya da kapatir.", { acik: "true veya false" }],
   ["youtube_ara", "YouTube'da video arar ve linklerini verir (ornek: 'Baykalem son videosu', 'valorant lineup shorts'). Sonra stil_cikar ya da telefonda_ac ile kullanilabilir.", { sorgu: "arama", tur: "shorts ya da bos", adet: "kac sonuc" }],
   ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
+  ["kelime_ogret", "Eren'in kisisel sozlugune kelime ekler/siler/listeler (isimler, musteriler, oyun terimleri, yer adlari). Sesli anlamada bu kelimeler dogru yazilir. Eren 'su kelimeyi ogren' derse kullan.", { kelime: "dogru yazilis (opsiyonel)", aciklama: "ne oldugu (opsiyonel)", duyulan: "yanlis duyulan hali (opsiyonel)", sil: "silinecek kelime (opsiyonel)" }],
+  ["duzelt", "Eren 'hayir, sunu dedim', 'yanlis anladin, ... dedim' derse cagir: yanlis anlamayi kaydeder (ogrenme verisi), sonra dogru istegi yap.", { dogru: "Eren'in asil dedigi", duyulan: "yanlis anlasilan hali (opsiyonel)" }],
   ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
   ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu yt-dlp ile Indirilenler'e indirir), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
@@ -2387,6 +2425,8 @@ async function aracCalistir(env, ad, a) {
     if (ad === "musteri_raporu") return await musteriRaporu(env, a);
     if (ad === "mola") { const ac = !/false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mola_acik", ac); return ac ? "Mola hatırlatıcısı açık (mesai dışında 10, 12 ve 23'te)." : "Mola hatırlatıcısı kapalı."; }
     if (ad === "youtube_ara") return await youtubeAra(env, a);
+    if (ad === "kelime_ogret") return await kelimeOgret(env, a);
+    if (ad === "duzelt") return await duzeltme(env, a);
     if (ad === "video_indir") return await videoIndir(env, a);
     if (ad === "laptop_komut") return await laptopKomut(env, a);
     if (ad === "telefonda_ac") {
@@ -2615,7 +2655,7 @@ async function sohbetEt(env, metin, sesB64) {
   const anlik = await baglam(env).catch(() => "");
   const bekleyenKod = await kvOku(env, "bekleyen_kod", null);
   const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.join("\n- ") : "") +
-    anlik +
+    anlik + (await sozlukMetni(env).catch(() => "")) +
     (plan && /yapılacak|yapilacak|plan|özellik|ozellik|ne ekledin|neler ekledin|neler var|ne yapabilir|yeni ne|liste|kurulum|anahtar|key/i.test(metin + " " + (gecmis.slice(-2).map((g) => g.content).join(" ")))
       ? "\n\nORTAK YAPILACAKLAR LISTENIZ (Eren sorarsa kisaca anlat):\n" + plan
       : "\n\n(Ortak yapilacaklar/ozellik listesi Eren 'neler ekledin, ne yapabilirsin' gibi sorarsa gosterilir.)") +
@@ -2801,7 +2841,8 @@ export default {
       const notlar = await kvOku(env, "notlar", []);
       const sonKonusma = (await kvOku(env, "gecmis", [])).slice(-20).map((g) => (g.role === "user" ? "Eren: " : "Jarvis: ") + String(g.content).slice(0, 300)).join("\n");
       const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.slice(-60).join("\n- ") : "") + (await baglam(env).catch(() => "")) +
-        (sonKonusma ? "\n\nSON KONUSMALARINIZ (hatirla, gerekirse atif yap):\n" + sonKonusma : "") +
+        (sonKonusma ? "\n\nSON KONUSMALARINIZ (hatirla, gerekirse atif yap):\n" + sonKonusma : "") + (await sozlukMetni(env).catch(() => "")) +
+        "\n\nEren 'hayir, sunu dedim' derse duzelt aracini, 'su kelimeyi ogren' derse kelime_ogret aracini cagir." +
         "\n\nEren kalici bir bilgi soylerse (musteri, fiyat, plan, tercih) hafiza aracini degil, sadece aklinda tut; gece otomatik kaydedilir." +
         "\n\nCANLI SESLI SOHBET: Eren seninle telefonda konusur gibi konusuyor. Turkce, dogal, kisa (1-3 cumle) konus; liste/markdown kullanma. " +
         "Bir is istediginde (harita, kurgu, ilan, hatirlatma, hava, mesaj taslagi...) uygun araci cagir, sonucu kendi cumlelerinle kisaca soyle. Linkleri sesli okuma, 'ekrana koydum' de. " +
