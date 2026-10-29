@@ -31,7 +31,7 @@ class MainActivity : Activity() {
             finish()
             return
         }
-        val izinler = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        val izinler = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) izinler.add(Manifest.permission.POST_NOTIFICATIONS)
         requestPermissions(izinler.toTypedArray(), 1)
 

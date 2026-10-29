@@ -40,6 +40,7 @@ class JarvisActivity : Activity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = false
+        web.settings.setGeolocationEnabled(true)
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: android.webkit.WebResourceRequest): Boolean {
                 val u = req.url
@@ -47,15 +48,30 @@ class JarvisActivity : Activity() {
                 try { startActivity(Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
                 return true
             }
+            // Sayfa (WebView) cokerse uygulama kapanmasin: ekrani bastan kur
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                try { (view.parent as? android.view.ViewGroup)?.removeView(view); view.destroy() } catch (_: Exception) {}
+                runOnUiThread { recreate() }
+                return true
+            }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread { request.grant(request.resources) }
             }
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) {
+                callback.invoke(origin, true, false)
+            }
         }
         ttsBaslat("com.google.android.tts")
         web.addJavascriptInterface(Kopru(), "Android")
         setContentView(web)
+        // Harita icin konum izni (bir kez sorulur)
+        val pr = getSharedPreferences("jarvis", MODE_PRIVATE)
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED && !pr.getBoolean("konum_soruldu", false)) {
+            pr.edit().putBoolean("konum_soruldu", true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 7)
+        }
         yukle(intent)
     }
 
