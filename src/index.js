@@ -690,9 +690,26 @@ async function driveApi(env, yol, secenek = {}) {
   return r.json();
 }
 
+// Klasor adini (Jarvis'in kendi klasorleri ya da Eren'in actigi herhangi bir klasor) Drive ID'sine cevirir
+async function klasorBul(env, ad) {
+  const b = await driveBilgi(env);
+  const k = String(ad || "").trim();
+  if (!k) return b.klasorler.ham;
+  if (b.klasorler[k.toLowerCase()]) return b.klasorler[k.toLowerCase()];
+  const temiz = k.replace(/['\\]/g, "").replace(/^jarvis[\/ ]+/i, "");
+  const ara = async (q) => (await driveApi(env, `files?q=${encodeURIComponent(q)}&pageSize=10&fields=files(id,name,parents,modifiedTime)&orderBy=modifiedTime desc`)).files || [];
+  let f = await ara(`mimeType='application/vnd.google-apps.folder' and trashed=false and name='${temiz}'`);
+  if (!f.length) f = await ara(`mimeType='application/vnd.google-apps.folder' and trashed=false and name contains '${temiz}'`);
+  if (!f.length) { // kelime kelime dene ("gkey still" -> "GKey Stil")
+    const kel = temiz.split(/\s+/).filter((x) => x.length > 2);
+    if (kel.length) f = await ara(`mimeType='application/vnd.google-apps.folder' and trashed=false and ` + kel.map((x) => `name contains '${x}'`).join(" and "));
+  }
+  return f.length ? f[0].id : null;
+}
+
 async function driveListe(env, klasorAdi) {
   const b = await driveBilgi(env);
-  const id = b.klasorler[klasorAdi] || b.klasorler.ham;
+  const id = (await klasorBul(env, klasorAdi).catch(() => null)) || b.klasorler.ham;
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
   const j = await driveApi(env, `files?q=${q}&orderBy=modifiedTime desc&pageSize=50&fields=files(id,name,mimeType,size,modifiedTime)`);
   return j.files || [];
@@ -732,10 +749,12 @@ async function driveIslem(env, j) {
     const f = await driveBul(env, j.ad || "");
     return f ? `Buldum: ${f.name}.` : "Bu adla bir video bulamadım.";
   }
-  const klasor = ["ham", "ornek", "malzeme", "bitti"].includes(j.klasor) ? j.klasor : "ham";
+  const klasor = String(j.klasor || "ham").trim();
+  if (!(await klasorBul(env, klasor))) return `Drive'da "${klasor}" adında bir klasör bulamadım.`;
   const l = await driveListe(env, klasor);
-  if (!l.length) return `Jarvis/${klasor} klasörü boş.`;
-  return `Jarvis/${klasor} klasöründe ${l.length} dosya var: ` + l.slice(0, 8).map((f) => f.name).join(", ") + ".";
+  if (!l.length) return `"${klasor}" klasörü boş (videolar hâlâ yükleniyor olabilir).`;
+  const video = l.filter((f) => (f.mimeType || "").startsWith("video")).length;
+  return `"${klasor}" klasöründe ${l.length} dosya var (${video} video): ` + l.slice(0, 12).map((f) => f.name).join(", ") + ".";
 }
 
 // ---------------- Niyet anlama: Eren ne istiyor? ----------------
@@ -2351,8 +2370,8 @@ const ARACLAR = [
   ["sistem_durumu", "Jarvis'in butun servislerini (beyin, ses kotasi, Drive, Discord, GitHub) test eder, neyin bozuk/eksik oldugunu ekranda gosterir.", {}],
   ["kurgular", "Son 6 kurguyu kapaklariyla ekranda listeler (hangisi hazir, hangisi isleniyor).", {}],
   ["kurgu_durumu", "Son kurgunun durumunu, video+kapak linkini, kalite puanini, baslik onerisini ve musteriye teslim mesaji taslagini (EN+TR) verir.", {}],
-  ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Link verilmezse Drive Jarvis/ornek klasorunu kullanir.",
-    { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)" }],
+  ["stil_cikar", "Ornek videolardan kurgu stili dosyasi cikarir. Videolar link olarak ya da Drive'daki bir klasor (ornek 'gkey stil') olarak verilebilir; ikisi de yoksa Jarvis/ornek klasorunu kullanir.",
+    { format: "shorts veya uzun", ad: "stil adi, ornek musteri adi (opsiyonel)", linkler: "bosluklu link listesi (opsiyonel)", klasor: "ornek videolarin oldugu Drive klasorunun adi (opsiyonel)" }],
   ["ilanlar", "Reddit'te bulunmus uygun video editor ilanlarini listeler.", {}],
   ["ilan_ara", "Hemen yeni ilan aramasi baslatir.", {}],
   ["ilan_detay", "Bir ilanin tam olarak ne istedigini, istenen kurgu stilini ve ornek videolarin analizini anlatir.", { numara: "ilan numarasi" }],
@@ -2361,7 +2380,7 @@ const ARACLAR = [
   ["not_al", "Yapacaklar listesine not ekler.", { metin: "not" }],
   ["yapacaklari_temizle", "Yapacaklar listesini temizler.", {}],
   ["alarm", "Sabah alarmini acar/kapatir/atlatir.", { istek: "ornek: yarin alarm yapma, alarmi ac" }],
-  ["drive", "Drive'daki Jarvis klasorlerine bakar, dosya arar veya klasor acar.", { alt: "listele, ara veya klasor_ac", klasor: "ham, ornek, malzeme veya bitti", ad: "aranacak dosya ya da acilacak klasor adi" }],
+  ["drive", "Eren'in Drive'ina bakar: herhangi bir klasorun icini listeler (Jarvis'in ham/ornek/malzeme/bitti klasorleri ya da Eren'in actigi 'gkey stil' gibi klasorler), dosya arar veya klasor acar.", { alt: "listele, ara veya klasor_ac", klasor: "klasor adi (ham, ornek, malzeme, bitti ya da herhangi bir klasor adi)", ad: "aranacak dosya ya da acilacak klasor adi" }],
   ["arastir", "Internette guncel arastirma yapar (Google). Haber, trend, fiyat, yontem, Valorant/video stili, her turlu guncel bilgi icin.", { soru: "arastirilacak soru" }],
   ["depremler", "Turkiye'deki son depremleri listeler ve ekranda deprem panelini acar.", { min_buyukluk: "en kucuk buyukluk, varsayilan 2.5" }],
   ["yakin_yerler", "Eren'in konumuna yakin yerleri ve su an acik olup olmadiklarini bulur, ekranda listeler. turler: kafe, restoran, fastfood, eczane, market, benzin, hastane, bar, plaj, park, spor, manzara, muze, sinema, nargile.",
@@ -2465,7 +2484,11 @@ async function aracCalistir(env, ad, a) {
     if (ad === "kurgu_durumu") { const d = await kurguDurumu(env, env.__kok); return typeof d === "string" ? d : { metin: d.cevap, link: d.link, linkler: d.linkler }; }
     if (ad === "stil_cikar") {
       let ls = s(a.linkler).split(/\s+/).filter(Boolean);
-      if (!ls.length && env.DRIVE_SCRIPT_URL) ls = (await driveListe(env, "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 4).map((f) => "drive:" + f.id);
+      if (!ls.length && env.DRIVE_SCRIPT_URL) {
+        if (a.klasor && !(await klasorBul(env, s(a.klasor)).catch(() => null))) return "HATA: Drive'da '" + s(a.klasor) + "' adinda klasor bulamadim. Eren'e klasorun tam adini sor.";
+        ls = (await driveListe(env, s(a.klasor) || "ornek").catch(() => [])).filter((f) => (f.mimeType || "").startsWith("video")).slice(0, 6).map((f) => "drive:" + f.id);
+        if (!ls.length && a.klasor) return "HATA: '" + s(a.klasor) + "' klasorunu buldum ama icinde video yok. Videolar yukleniyor olabilir ya da baska klasordeler.";
+      }
       if (!ls.length) return "HATA: ornek video yok. Eren'den link iste ya da Drive Jarvis/ornek klasorune koymasini soyle.";
       return await stilCikar(env, ["stil çıkar", s(a.format) === "uzun" ? "uzun" : "shorts", a.ad ? "ad " + s(a.ad) : "", ...ls].join(" "));
     }
