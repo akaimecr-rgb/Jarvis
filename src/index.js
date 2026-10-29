@@ -30,6 +30,7 @@ const SISTEM_TEMEL =
   "Hangi servisin calistigini bilmiyorsan tahmin etme, sistem_durumu aracini kullan ve sonucunu aynen soyle. " +
   "YALAN YOK: Bir arac cagirmadan 'yapiyorum, tariyorum, yukluyorum, deniyorum, calisiyor' deme. Bir isin durumunu sorarsa durum aracini (stil_durumu, kurgu_durumu, claude_kod_durumu, drive) cagir; sonucu bilmiyorsan 'bilmiyorum, kontrol edeyim' de ve kontrol et. " +
   "Yapamadigin bir sey icin 'yapamiyorum' deme; uygun arac yoksa claude_kod ile eklenebilecegini soyle. " +
+  "Eren kodda, arayuzde ya da bir ozellikte degisiklik/duzeltme isterse 'kod yazamiyorum' DEME: claude_kod aracini cagir (Claude Code bulutta yazar, Eren onaylar). " +
   "RUH HALI: Eren yorgun, stresli, uzgun ya da sinirli gorunurse (kisa sert mesajlar, 'yoruldum', 'bıktım', gece gec saat, uzun mesai sonrasi) " +
   "once bunu fark et ve tek cumleyle yanında oldugunu hissettir; cevabini daha kisa ve sakin tut, ona yeni is yukleme, gerekiyorsa dinlenmesini oner. " +
   "Iyi bir haber oldugunda (odeme geldi, yeni musteri, hedefe yaklasti) icten kutla.";
@@ -2970,9 +2971,13 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
         "\n\nEren kalici bir bilgi soylerse (musteri, fiyat, plan, tercih) hafiza aracini degil, sadece aklinda tut; gece otomatik kaydedilir." +
         "\n\nCANLI SESLI SOHBET: Eren seninle telefonda konusur gibi konusuyor. Turkce, dogal, kisa (1-3 cumle) konus; liste/markdown kullanma. " +
         "Bir is istediginde (harita, kurgu, ilan, hatirlatma, hava, mesaj taslagi...) uygun araci cagir, sonucu kendi cumlelerinle kisaca soyle. Linkleri sesli okuma, 'ekrana koydum' de. " +
-        "Eren 'gorusuruz', 'kapat', 'tamam bu kadar' derse kisaca vedalas ve sohbeti_bitir aracini cagir.";
+        "Eren 'gorusuruz', 'kapat', 'tamam bu kadar' derse kisaca vedalas ve sohbeti_bitir aracini cagir. " +
+        "KOD: Sen kod yazamiyor olsan bile Jarvis'in kodunu Claude Code degistirebilir. Eren Jarvis'te/arayuzde/bir ozellikte degisiklik ya da duzeltme isterse ASLA 'kod yazamiyorum' deme; isteği ayrintili yazip claude_kod aracini cagir ve 'Claude Code'a verdim, bitince onaylaman gerekecek' de.";
       const tip = (t) => ({ type: "OBJECT", properties: Object.fromEntries(Object.entries(t.function.parameters.properties || {}).map(([k, v]) => [k, { type: "STRING", description: v.description || "" }])) });
-      const araclar = ARACLAR.slice(0, 60).map((t) => ({ name: t.function.name, description: t.function.description.slice(0, 300), ...(Object.keys(t.function.parameters.properties || {}).length ? { parameters: tip(t) } : {}) }));
+      // Tum araclar (onemli olanlar once); aciklamalar kisa tutulur
+      const ONCE = ["claude_kod", "claude_kod_durumu", "harita", "kurgula", "kurgu_durumu", "stil_cikar", "stil_durumu", "video_indir", "youtube_ara", "telefonda_ac", "dm_gonder", "sistem_durumu"];
+      const sirali = [...ARACLAR].sort((x, y) => (ONCE.includes(y.function.name) ? 1 : 0) - (ONCE.includes(x.function.name) ? 1 : 0));
+      const araclar = sirali.slice(0, 120).map((t) => ({ name: t.function.name, description: t.function.description.slice(0, 220), ...(Object.keys(t.function.parameters.properties || {}).length ? { parameters: tip(t) } : {}) }));
       araclar.push({ name: "sohbeti_bitir", description: "Eren konusmayi bitirmek istediginde sesli sohbeti kapatir." });
       return Response.json({ token: j.name, modeller: (env.CANLI_MODEL || "gemini-3.1-flash-live-preview,gemini-3.8-live,gemini-2.5-flash-native-audio-preview-12-2025").split(","), ses: env.CANLI_SES || "Charon", sistem, araclar });
     }
