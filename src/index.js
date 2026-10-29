@@ -704,14 +704,19 @@ async function klasorBul(env, ad) {
     const kel = temiz.split(/\s+/).filter((x) => x.length > 2);
     if (kel.length) f = await ara(`mimeType='application/vnd.google-apps.folder' and trashed=false and ` + kel.map((x) => `name contains '${x}'`).join(" and "));
   }
+  env.__klasorAdaylari = f.map((x) => x.name);
+  env.__klasorIdleri = f.map((x) => x.id);
   return f.length ? f[0].id : null;
 }
 
 async function driveListe(env, klasorAdi) {
   const b = await driveBilgi(env);
   const id = (await klasorBul(env, klasorAdi).catch(() => null)) || b.klasorler.ham;
-  const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
-  const j = await driveApi(env, `files?q=${q}&orderBy=modifiedTime desc&pageSize=50&fields=files(id,name,mimeType,size,modifiedTime)`);
+  // Ayni ada benzeyen birden fazla klasor varsa hepsine bak
+  const idler = (env.__klasorIdleri && env.__klasorIdleri.length ? env.__klasorIdleri.slice(0, 5) : [id]);
+  const q = encodeURIComponent("(" + idler.map((x) => `'${x}' in parents`).join(" or ") + ") and trashed=false");
+  const j = await driveApi(env, `files?q=${q}&orderBy=modifiedTime desc&pageSize=100&fields=files(id,name,mimeType,size,modifiedTime)&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+  env.__klasorIdleri = null;
   return j.files || [];
 }
 
@@ -751,8 +756,9 @@ async function driveIslem(env, j) {
   }
   const klasor = String(j.klasor || "ham").trim();
   if (!(await klasorBul(env, klasor))) return `Drive'da "${klasor}" adında bir klasör bulamadım.`;
+  const adaylar = (env.__klasorAdaylari || []).slice(0, 5);
   const l = await driveListe(env, klasor);
-  if (!l.length) return `"${klasor}" klasörü boş (videolar hâlâ yükleniyor olabilir).`;
+  if (!l.length) return `"${klasor}" için şu klasörlere baktım: ${adaylar.join(", ") || klasor}. Hepsi boş görünüyor. Videolar hâlâ yükleniyor olabilir ya da başka bir klasöre yüklendi.`;
   const video = l.filter((f) => (f.mimeType || "").startsWith("video")).length;
   return `"${klasor}" klasöründe ${l.length} dosya var (${video} video): ` + l.slice(0, 12).map((f) => f.name).join(", ") + ".";
 }
@@ -2656,6 +2662,8 @@ async function yapilacaklar(env) {
 async function ekranKomutu(env, metin) {
 // Ekran komutlari: yapay zekaya sormadan dogrudan (hizli ve her seferinde ayni)
   const kisaM = metin.toLocaleLowerCase("tr").replace(/[.!?]/g, "").trim();
+  const cm = metin.match(/^\s*(?:jarvis,?\s*)?claude(?:\s*code)?\s*(?:ile|la|'?la|'?yla|kullanarak|:)\s*(.{5,})$/i);
+  if (cm) { const r = await claudeKod(env, cm[1].trim()); return { duydum: metin, cevap: r, beyin: "sistem" }; }
   if (kisaM && kisaM.length < 60) {
     const hm = kisaM.match(/^(?:jarvis,? )?(?:harita(?:y[ıi])?|haritalar(?:ı|i)?)(?: a[çc](?:ar m[ıi]s[ıi]n)?)?(?:,? (.+?))?(?: haritas[ıi])?(?: a[çc])?$/) || kisaM.match(/^(?:jarvis,? )?(.+?) haritas[ıi](?:n[ıi])? a[çc]$/);
     if (hm) { const r = await aracCalistir(env, "harita", { yer: hm[1] && !/^(a[çc]|g[öo]ster)$/.test(hm[1]) ? hm[1] : "" }); return { duydum: metin, cevap: r.metin || String(r), beyin: "sistem", ekran: r.ekran }; }
