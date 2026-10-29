@@ -2272,7 +2272,8 @@ async function stilKontrol(env) {
     if (!k.includes("ad=" + sb.ad) || !/SONUC: (success|failure|cancelled)/.test(k)) { if (Date.now() - sb.zaman > 40 * 60e3) await kvYaz(env, "stil_bekliyor", null); return null; }
     await kvYaz(env, "stil_bekliyor", null);
     const ok = k.includes("SONUC: success");
-    const sebep = k.includes("GEMINI_KOTA") ? "Gemini'nin ücretsiz kotası dolu, birkaç saat sonra tekrar dene." : k.includes("VIDEO_YOK") || k.includes("Ornek sayisi: 0") ? "Örnek video indirilemedi (Drive bağlantısı ya da klasör)." : k.includes("indirilemedi") ? "Bazı videolar Drive'dan indirilemedi." : "Bilinmeyen hata.";
+    const dh = (k.match(/DRIVE_HATA: (.*)/) || [])[1];
+    const sebep = dh ? "Bulut Drive'a giremedi: " + dh : k.includes("GEMINI_KOTA") ? "Gemini'nin ücretsiz kotası dolu, birkaç saat sonra tekrar dene." : k.includes("VIDEO_YOK") || k.includes("Ornek sayisi: 0") ? "Örnek video indirilemedi (Drive bağlantısı ya da klasör)." : k.includes("indirilemedi") ? "Bazı videolar Drive'dan indirilemedi." : "Bilinmeyen hata.";
     const metin = ok ? `"${sb.ad}" stili hazır. Bundan sonra kurgularken stil ${sb.ad} diyebilirsin.` : `"${sb.ad}" stili çıkarılamadı: ${sebep}`;
     await kvYaz(env, "son_stil_sonucu", { ad: sb.ad, ok, metin, zaman: Date.now() });
     await bildirimEkle(env, ok ? "Stil hazır ✅ " + sb.ad : "Stil çıkarma başarısız ❌", metin, "");
