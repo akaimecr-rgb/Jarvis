@@ -1828,6 +1828,7 @@ async function saatlikIs(env) {
   }
   // 3g) Yeni ozellik kontrolleri (dolar, tarih, cikis havasi, teslim, sessiz musteri)
   try { await yeniSaatlik(env); } catch (e) {}
+  await indirKontrol(env);
   // 3h) Claude Code isi bitti mi?
   try {
     const bk = await kvOku(env, "claude_kod_bekliyor", null);
@@ -2135,6 +2136,37 @@ async function youtubeAra(env, a = {}) {
   };
 }
 
+// --- Buluttan video indirme (Drive'a koyar) ---
+async function videoIndir(env, a = {}) {
+  let url = String(a.link || "").trim();
+  if (/^\d$/.test(url)) { const y = await kvOku(env, "son_youtube", []); if (y[+url - 1]) url = "https://youtu.be/" + y[+url - 1].id; }
+  if (!/^https?:\/\//.test(url) && a.ara) {
+    const y = await youtubeAra(env, { sorgu: a.ara, adet: 1 }).catch(() => null);
+    const m = y && y.metin && y.metin.match(/https:\/\/youtu\.be\/[\w-]{11}/);
+    if (m) url = m[0];
+  }
+  if (!/^https?:\/\//.test(url)) return "HATA: indirilecek video linki yok. Once youtube_ara ile bul ya da linki ver.";
+  const klasor = ["ornek", "ham", "malzeme"].includes(a.klasor) ? a.klasor : "ornek";
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/indir.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { url, klasor } }) });
+  await kvYaz(env, "indir_bekliyor", { url, klasor, zaman: Date.now() });
+  await gunlukEkle(env, "Video buluttan indiriliyor: " + url);
+  return `Videoyu bulutta indiriyorum (${url}). 1-3 dakikada Drive'daki Jarvis/${klasor} klasorune gelecek, bitince haber veririm. Stil icin indirmeye gerek yok; stil_cikar YouTube linkini dogrudan izleyebilir.`;
+}
+
+async function indirKontrol(env) {
+  try {
+    const ib = await kvOku(env, "indir_bekliyor", null);
+    if (ib && Date.now() - ib.zaman > 60e3) {
+      const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/indir.log?ref=indir-log`)).content);
+      if (k.includes("url=" + ib.url)) {
+        await kvYaz(env, "indir_bekliyor", null);
+        const did = (k.match(/DRIVE_ID: (\S+)/) || [])[1], bas = (k.match(/BASLIK: (.*)/) || [])[1] || "video";
+        await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? "Site videoyu vermedi (YouTube bazen bulutu engelliyor)." : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
+      } else if (Date.now() - ib.zaman > 20 * 60e3) await kvYaz(env, "indir_bekliyor", null);
+    }
+  } catch (e) {}
+}
+
 // --- Laptop komut kuyrugu (laptop programi 5 sn'de bir sorar) ---
 async function laptopKomut(env, a = {}) {
   const tur = String(a.tur || "ac");
@@ -2235,6 +2267,7 @@ const ARAC_GRUPLARI = [
   [/youtube|video bul|videosu|kanalı|kanali|ara\b|bul\b|stil/i, ["youtube_ara", "stil_cikar", "telefonda_ac"]],
   [/aç\b|ac\b|açar|acar|telefonda|telefondan|uygulama|git\b|gir\b/i, ["telefonda_ac", "youtube_ara", "laptop_komut"]],
   [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
+  [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
   [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik"]],
   [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
   [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
@@ -2267,6 +2300,7 @@ const ARACLAR = [
   ["mola", "Mesai disinda su/goz/esneme mola hatirlaticisini acar ya da kapatir.", { acik: "true veya false" }],
   ["youtube_ara", "YouTube'da video arar ve linklerini verir (ornek: 'Baykalem son videosu', 'valorant lineup shorts'). Sonra stil_cikar ya da telefonda_ac ile kullanilabilir.", { sorgu: "arama", tur: "shorts ya da bos", adet: "kac sonuc" }],
   ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
+  ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
   ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu yt-dlp ile Indirilenler'e indirir), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
@@ -2353,6 +2387,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "musteri_raporu") return await musteriRaporu(env, a);
     if (ad === "mola") { const ac = !/false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mola_acik", ac); return ac ? "Mola hatırlatıcısı açık (mesai dışında 10, 12 ve 23'te)." : "Mola hatırlatıcısı kapalı."; }
     if (ad === "youtube_ara") return await youtubeAra(env, a);
+    if (ad === "video_indir") return await videoIndir(env, a);
     if (ad === "laptop_komut") return await laptopKomut(env, a);
     if (ad === "telefonda_ac") {
       const UYG = { youtube: "https://www.youtube.com", discord: "https://discord.com/app", drive: "https://drive.google.com", instagram: "https://www.instagram.com", tiktok: "https://www.tiktok.com",
@@ -2823,6 +2858,7 @@ export default {
     }
     if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (url.pathname === "/bildirimler") ctx.waitUntil(indirKontrol(env).catch(() => {}));
       if (url.pathname === "/sabah") { await uykuKaydet(env, "kalk").catch(() => {}); return Response.json(await sabahOzeti(env)); }
       const son = parseInt(url.searchParams.get("son") || "0");
       return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });
