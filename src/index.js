@@ -2234,7 +2234,7 @@ async function nisKontrol(env) {
   if (!nb || Date.now() - nb.zaman < 90e3) return;
   try {
     const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/nis.log?ref=nis-log`)).content);
-    if (!k.includes("nis=" + nb.nis)) { if (Date.now() - nb.zaman > 45 * 60e3) await kvYaz(env, "nis_bekliyor", null); return; }
+    if (!k.includes("nis=" + nb.nis) || !kayitYeniMi(k, nb.zaman)) { if (Date.now() - nb.zaman > 45 * 60e3) await kvYaz(env, "nis_bekliyor", null); return; }
     await kvYaz(env, "nis_bekliyor", null);
     const slug = (k.match(/NIS_SLUG: (\S+)/) || [])[1];
     if (!slug) { await bildirimEkle(env, "Niş analizi olmadı", k.includes("VIDEO_BULUNAMADI") ? "Bu konuda video bulamadım, başka kelimelerle dene." : "Videolar analiz edilemedi (Gemini kotası dolmuş olabilir).", ""); return; }
@@ -2243,6 +2243,11 @@ async function nisKontrol(env) {
     await bildirimEkle(env, "Niş analizi hazır 📊 " + nb.nis, "Hook'lar, akış ve 3 video planı hazır. Stil adı: " + slug, link);
     await gunlukEkle(env, "Niş analizi bitti: " + nb.nis + " (stil: " + slug + ")");
   } catch (e) {}
+}
+// Kayit (log) bu istekten SONRA mi yazildi? (eski sonucu yeni sanmamak icin)
+function kayitYeniMi(k, baslangic) {
+  const z = +((k.match(/zaman=(\d+)/) || [])[1] || 0);
+  return z * 1000 > baslangic;
 }
 function mdHtml(md) {
   const e = (x) => x.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -2269,7 +2274,7 @@ async function stilKontrol(env) {
   if (!sb || Date.now() - sb.zaman < 90e3) return null;
   try {
     const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/stil.log?ref=stil-log`)).content);
-    if (!k.includes("ad=" + sb.ad) || !/SONUC: (success|failure|cancelled)/.test(k)) { if (Date.now() - sb.zaman > 40 * 60e3) await kvYaz(env, "stil_bekliyor", null); return null; }
+    if (!k.includes("ad=" + sb.ad) || !kayitYeniMi(k, sb.zaman) || !/SONUC: (success|failure|cancelled)/.test(k)) { if (Date.now() - sb.zaman > 40 * 60e3) await kvYaz(env, "stil_bekliyor", null); return null; }
     await kvYaz(env, "stil_bekliyor", null);
     const ok = k.includes("SONUC: success");
     const dh = (k.match(/DRIVE_HATA: (.*)/) || [])[1];
@@ -2293,7 +2298,7 @@ async function indirKontrol(env) {
     const ib = await kvOku(env, "indir_bekliyor", null);
     if (ib && Date.now() - ib.zaman > 60e3) {
       const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/indir.log?ref=indir-log`)).content);
-      if (k.includes("url=" + ib.url)) {
+      if (k.includes("url=" + ib.url) && kayitYeniMi(k, ib.zaman)) {
         await kvYaz(env, "indir_bekliyor", null);
         const did = (k.match(/DRIVE_ID: (\S+)/) || [])[1], bas = (k.match(/BASLIK: (.*)/) || [])[1] || "video";
         await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? "Site videoyu vermedi (YouTube bazen bulutu engelliyor)." : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
