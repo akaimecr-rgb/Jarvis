@@ -1898,6 +1898,7 @@ async function sabahOzeti(env) {
   try { parcalar.push((await gunlukPlan(env)).metin); } catch (e) {}
   parcalar.push(await nelerYaptin(env));
   try { parcalar.push((await gelirOzeti(env)).metin); } catch (e) {}
+  try { const gr = await kvOku(env, "gece_raporlari", []); if (gr.length && gr[0].tarih === trSimdi().tarih) parcalar.push("GECE ISTEDIGI ARASTIRMALAR (bunlari detayli ama sesli okunacak sekilde anlat, 'ekrana da koydum' de): " + gr.map((x) => x.konu + ": " + x.metin.slice(0, 1500)).join(" || ")); } catch (e) {}
   try { const g = await kvOku(env, "gece_ogrenilen", null); if (g && g.tarih === trSimdi().tarih) parcalar.push("Gece kendi kendine ogrendigin (Eren'e 'gece sunu ogrendim' diye kisaca anlat): " + g.metin); } catch (e) {}
   try { const n = (await kvOku(env, "arastirma_notlari", [])).slice(-1)[0]; if (n) parcalar.push("Son arastirma (" + n.konu + "): " + n.ozet.slice(0, 500)); } catch (e) {}
   const bk = await kvOku(env, "bekleyen_kod", null);
@@ -2220,6 +2221,30 @@ async function videoIndir(env, a = {}) {
 }
 
 // --- Nis analizi (kanal acma): bulutta calisir, rapor sayfasi /rapor/<slug> ---
+// --- Sabaha arastirma: Eren'in istedigi konulari gece arastir, sabah ozetinde detayli rapor ver ---
+async function sabahaArastir(env, a = {}) {
+  const konu = String(a.konu || "").trim();
+  if (!konu) return "HATA: neyi arastirayim?";
+  const l = await kvOku(env, "gece_arastirma", []);
+  l.push({ konu: konu.slice(0, 400), zaman: Date.now() });
+  await kvYaz(env, "gece_arastirma", l.slice(-5));
+  return `Tamam, "${konu}" konusunu gece araştırıp sabah özetinde detaylı rapor vereceğim (sırada ${l.length} konu var). Raporu sabah 'uyandım' deyince ya da 'gece raporu' deyince okursun.`;
+}
+async function geceArastirmalariYap(env) {
+  const l = await kvOku(env, "gece_arastirma", []);
+  if (!l.length) return;
+  const raporlar = [];
+  for (const x of l.slice(0, 3)) {
+    try {
+      const r = await arastir(env, x.konu + "\n\nDetayli, somut ve Eren'in isine yarayacak bir rapor yaz: onemli bulgular, rakamlar, firsatlar, yapilacak 3-5 adim, kaynaklar. Turkce.");
+      raporlar.push({ konu: x.konu, metin: r.metin.slice(0, 3500), linkler: (r.linkler || []).slice(0, 5), tarih: trSimdi().tarih });
+    } catch (e) { raporlar.push({ konu: x.konu, metin: "Arastirma yapilamadi: " + e.message, linkler: [], tarih: trSimdi().tarih }); }
+  }
+  await kvYaz(env, "gece_arastirma", l.slice(3));
+  await kvYaz(env, "gece_raporlari", raporlar);
+  await gunlukEkle(env, "Gece " + raporlar.length + " konu araştırdım, sabah anlatacağım");
+}
+
 async function nisAnaliz(env, a = {}) {
   const nis = String(a.nis || "").trim();
   if (!nis) return "HATA: hangi nis/konu? (ornek: valorant taktik, bilim shorts)";
@@ -2421,6 +2446,7 @@ const ARAC_GRUPLARI = [
   [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
   [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
   [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik", "nis_analiz", "nis_raporlari"]],
+  [/sabah|gece|yarın|yarin|rapor|araştır|arastir/i, ["sabaha_arastir", "gece_raporu", "arastir"]],
   [/niş|nis\b|nişi|nisi|hook|trend|analiz|kanal aç|kanal ac|fikir|başlık|baslik/i, ["nis_analiz", "nis_raporlari", "fikir_uret"]],
   [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
   [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
@@ -2455,6 +2481,8 @@ const ARACLAR = [
   ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
   ["kelime_ogret", "Eren'in kisisel sozlugune kelime ekler/siler/listeler (isimler, musteriler, oyun terimleri, yer adlari). Sesli anlamada bu kelimeler dogru yazilir. Eren 'su kelimeyi ogren' derse kullan.", { kelime: "dogru yazilis (opsiyonel)", aciklama: "ne oldugu (opsiyonel)", duyulan: "yanlis duyulan hali (opsiyonel)", sil: "silinecek kelime (opsiyonel)" }],
   ["duzelt", "Eren 'hayir, sunu dedim', 'yanlis anladin, ... dedim' derse cagir: yanlis anlamayi kaydeder (ogrenme verisi), sonra dogru istegi yap.", { dogru: "Eren'in asil dedigi", duyulan: "yanlis anlasilan hali (opsiyonel)" }],
+  ["sabaha_arastir", "Eren'in istedigi bir konuyu GECE arastirmak uzere siraya koyar; sabah ozetinde detayli rapor verilir. Eren 'yarin sabah rapor ver', 'gece arastir' derse BUNU cagir (cagirmadan soz verme).", { konu: "arastirilacak konu, ayrintili" }],
+  ["gece_raporu", "Gece yapilan arastirmalarin raporlarini gosterir.", {}],
   ["nis_analiz", "Bir YouTube nisini analiz eder: o konuda en cok izlenen videolari bulup izler; hook'lari, kurgu stilini ve video akisini cikarir; Eren'in kanali icin baslik, hook, akis, kurgu, aciklama ve etiketlerle 3 video plani ve kurgu stil dosyasi yazar (bulutta, 5-15 dk).", { nis: "konu/nis, ornek 'valorant taktik' ya da 'uzay bilim'", tur: "shorts veya uzun", dil: "kanalin dili (varsayilan Turkce)" }],
   ["nis_raporlari", "Daha once yapilan nis analizlerinin rapor linklerini listeler.", {}],
   ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
@@ -2547,6 +2575,8 @@ async function aracCalistir(env, ad, a) {
     if (ad === "youtube_ara") return await youtubeAra(env, a);
     if (ad === "kelime_ogret") return await kelimeOgret(env, a);
     if (ad === "duzelt") return await duzeltme(env, a);
+    if (ad === "sabaha_arastir") return await sabahaArastir(env, a);
+    if (ad === "gece_raporu") { const gr = await kvOku(env, "gece_raporlari", []); return gr.length ? { metin: gr.map((x) => `[${x.tarih}] ${x.konu}: ${x.metin}`).join("\n\n"), linkler: gr.flatMap((x) => x.linkler || []).slice(0, 6) } : "Henuz gece raporu yok. Bekleyen konular: " + ((await kvOku(env, "gece_arastirma", [])).map((x) => x.konu).join("; ") || "yok"); }
     if (ad === "nis_analiz") return await nisAnaliz(env, a);
     if (ad === "nis_raporlari") { const l = await kvOku(env, "nis_raporlari", []); return l.length ? { metin: "Nis raporlari: " + l.map((x) => `${x.nis} (${x.tarih}, stil adi: ${x.slug})`).join("; "), linkler: l.slice(-6).map((x) => ({ ad: x.nis.slice(0, 20), url: x.link })) } : "Henuz nis analizi yapilmadi."; }
     if (ad === "video_indir") return await videoIndir(env, a);
@@ -2888,6 +2918,7 @@ export default {
     ctx.waitUntil((async () => {
       try { await yedekAl(env); } catch (e) { await gunlukEkle(env, "Yedek alınamadı: " + e.message); }
       try { await geceOgren(env); } catch (e) {}
+      try { await geceArastirmalariYap(env); } catch (e) {}
       try { await hafizaOzetle(env); } catch (e) {}
       try { await veriKaydet(env); } catch (e) { await gunlukEkle(env, "Veri kaydı olmadı: " + e.message); }
       try {
