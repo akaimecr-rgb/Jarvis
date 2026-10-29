@@ -1855,6 +1855,7 @@ async function saatlikIs(env) {
   // 3g) Yeni ozellik kontrolleri (dolar, tarih, cikis havasi, teslim, sessiz musteri)
   try { await yeniSaatlik(env); } catch (e) {}
   await indirKontrol(env);
+  await nisKontrol(env);
   // 3h) Claude Code isi bitti mi?
   try {
     const bk = await kvOku(env, "claude_kod_bekliyor", null);
@@ -2213,6 +2214,50 @@ async function videoIndir(env, a = {}) {
   return `Videoyu bulutta indiriyorum (${url}). 1-3 dakikada Drive'daki Jarvis/${klasor} klasorune gelecek, bitince haber veririm. Stil icin indirmeye gerek yok; stil_cikar YouTube linkini dogrudan izleyebilir.`;
 }
 
+// --- Nis analizi (kanal acma): bulutta calisir, rapor sayfasi /rapor/<slug> ---
+async function nisAnaliz(env, a = {}) {
+  const nis = String(a.nis || "").trim();
+  if (!nis) return "HATA: hangi nis/konu? (ornek: valorant taktik, bilim shorts)";
+  const tur = /uzun|long/i.test(a.tur || "") ? "uzun" : "shorts";
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/nis.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { nis, tur, dil: String(a.dil || "Turkce") } }) });
+  await kvYaz(env, "nis_bekliyor", { nis, zaman: Date.now() });
+  await gunlukEkle(env, "Niş analizi başladı: " + nis);
+  return `"${nis}" nişini analiz ediyorum: en çok izlenen ${tur} videolarını bulup Gemini'ye izletiyorum; hook, akış ve kurgu stilini çıkarıp senin kanalın için 3 video planı yazacağım. 5-15 dakika sürer, bitince rapor linkiyle haber veririm.`;
+}
+async function nisKontrol(env) {
+  const nb = await kvOku(env, "nis_bekliyor", null);
+  if (!nb || Date.now() - nb.zaman < 90e3) return;
+  try {
+    const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/nis.log?ref=nis-log`)).content);
+    if (!k.includes("nis=" + nb.nis)) { if (Date.now() - nb.zaman > 45 * 60e3) await kvYaz(env, "nis_bekliyor", null); return; }
+    await kvYaz(env, "nis_bekliyor", null);
+    const slug = (k.match(/NIS_SLUG: (\S+)/) || [])[1];
+    if (!slug) { await bildirimEkle(env, "Niş analizi olmadı", k.includes("VIDEO_BULUNAMADI") ? "Bu konuda video bulamadım, başka kelimelerle dene." : "Videolar analiz edilemedi (Gemini kotası dolmuş olabilir).", ""); return; }
+    const link = (env.JARVIS_URL || "https://jarviss.akaimecr.workers.dev") + "/rapor/" + slug + "?t=" + (await videoImza(env, "rapor-" + slug));
+    const l = await kvOku(env, "nis_raporlari", []); l.push({ nis: nb.nis, slug, link, tarih: trSimdi().tarih }); await kvYaz(env, "nis_raporlari", l.slice(-30));
+    await bildirimEkle(env, "Niş analizi hazır 📊 " + nb.nis, "Hook'lar, akış ve 3 video planı hazır. Stil adı: " + slug, link);
+    await gunlukEkle(env, "Niş analizi bitti: " + nb.nis + " (stil: " + slug + ")");
+  } catch (e) {}
+}
+function mdHtml(md) {
+  const e = (x) => x.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const satirIci = (x) => e(x).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  let h = "", liste = null, kod = false;
+  for (const ham of md.split("\n")) {
+    if (ham.startsWith("```")) { if (liste) { h += `</${liste}>`; liste = null; } h += kod ? "</pre>" : "<pre>"; kod = !kod; continue; }
+    if (kod) { h += e(ham) + "\n"; continue; }
+    const m = ham.match(/^(\s*)([-*]|\d+\.)\s+(.*)/);
+    if (m) { const t = /\d/.test(m[2]) ? "ol" : "ul"; if (liste !== t) { if (liste) h += `</${liste}>`; h += `<${t}>`; liste = t; } h += "<li>" + satirIci(m[3]) + "</li>"; continue; }
+    if (liste) { h += `</${liste}>`; liste = null; }
+    const b = ham.match(/^(#{1,4})\s+(.*)/);
+    if (b) h += `<h${b[1].length}>` + satirIci(b[2]) + `</h${b[1].length}>`;
+    else if (ham.trim()) h += "<p>" + satirIci(ham) + "</p>";
+  }
+  if (liste) h += `</${liste}>`;
+  return h;
+}
+
 async function indirKontrol(env) {
   try {
     const ib = await kvOku(env, "indir_bekliyor", null);
@@ -2329,7 +2374,8 @@ const ARAC_GRUPLARI = [
   [/aç\b|ac\b|açar|acar|telefonda|telefondan|uygulama|git\b|gir\b/i, ["telefonda_ac", "youtube_ara", "laptop_komut"]],
   [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
   [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
-  [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik"]],
+  [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik", "nis_analiz", "nis_raporlari"]],
+  [/niş|nis\b|nişi|nisi|hook|trend|analiz|kanal aç|kanal ac|fikir|başlık|baslik/i, ["nis_analiz", "nis_raporlari", "fikir_uret"]],
   [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
   [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
   [/dolar|kur|euro|döviz|doviz/i, ["dolar_alarm"]],
@@ -2363,6 +2409,8 @@ const ARACLAR = [
   ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
   ["kelime_ogret", "Eren'in kisisel sozlugune kelime ekler/siler/listeler (isimler, musteriler, oyun terimleri, yer adlari). Sesli anlamada bu kelimeler dogru yazilir. Eren 'su kelimeyi ogren' derse kullan.", { kelime: "dogru yazilis (opsiyonel)", aciklama: "ne oldugu (opsiyonel)", duyulan: "yanlis duyulan hali (opsiyonel)", sil: "silinecek kelime (opsiyonel)" }],
   ["duzelt", "Eren 'hayir, sunu dedim', 'yanlis anladin, ... dedim' derse cagir: yanlis anlamayi kaydeder (ogrenme verisi), sonra dogru istegi yap.", { dogru: "Eren'in asil dedigi", duyulan: "yanlis anlasilan hali (opsiyonel)" }],
+  ["nis_analiz", "Bir YouTube nisini analiz eder: o konuda en cok izlenen videolari bulup izler; hook'lari, kurgu stilini ve video akisini cikarir; Eren'in kanali icin baslik, hook, akis, kurgu, aciklama ve etiketlerle 3 video plani ve kurgu stil dosyasi yazar (bulutta, 5-15 dk).", { nis: "konu/nis, ornek 'valorant taktik' ya da 'uzay bilim'", tur: "shorts veya uzun", dil: "kanalin dili (varsayilan Turkce)" }],
+  ["nis_raporlari", "Daha once yapilan nis analizlerinin rapor linklerini listeler.", {}],
   ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
   ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu yt-dlp ile Indirilenler'e indirir), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
@@ -2452,6 +2500,8 @@ async function aracCalistir(env, ad, a) {
     if (ad === "youtube_ara") return await youtubeAra(env, a);
     if (ad === "kelime_ogret") return await kelimeOgret(env, a);
     if (ad === "duzelt") return await duzeltme(env, a);
+    if (ad === "nis_analiz") return await nisAnaliz(env, a);
+    if (ad === "nis_raporlari") { const l = await kvOku(env, "nis_raporlari", []); return l.length ? { metin: "Nis raporlari: " + l.map((x) => `${x.nis} (${x.tarih}, stil adi: ${x.slug})`).join("; "), linkler: l.slice(-6).map((x) => ({ ad: x.nis.slice(0, 20), url: x.link })) } : "Henuz nis analizi yapilmadi."; }
     if (ad === "video_indir") return await videoIndir(env, a);
     if (ad === "laptop_komut") return await laptopKomut(env, a);
     if (ad === "telefonda_ac") {
@@ -2850,6 +2900,17 @@ export default {
       const yer = r.headers.get("location");
       return yer ? Response.redirect(yer, 302) : new Response(r.body, { status: r.status });
     }
+    const rm = url.pathname.match(/^\/rapor\/([a-z0-9-]+)$/);
+    if (request.method === "GET" && rm) {
+      if (url.searchParams.get("t") !== (await videoImza(env, "rapor-" + rm[1]))) return new Response("Yetkisiz", { status: 401 });
+      let md;
+      try { md = await digerDosya(env, SABLON_REPO, "nisler/" + rm[1] + ".md"); } catch (e) { return new Response("Rapor bulunamadi", { status: 404 }); }
+      return new Response(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Niş Analizi</title>
+<style>body{margin:0;background:#02070d;color:#cffafe;font:16px/1.65 system-ui,sans-serif;padding:20px max(16px,env(safe-area-inset-left))}main{max-width:760px;margin:0 auto}
+h1{color:#22d3ee;font-size:26px;letter-spacing:.04em}h2{color:#22d3ee;border-bottom:1px solid #155e75;padding-bottom:6px;margin-top:34px}h3{color:#67e8f9;margin-top:24px}
+a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px solid #155e75;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}code{background:#061824;padding:1px 5px;border-radius:4px}</style></head>
+<body><main>${mdHtml(md)}</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
     const fm = url.pathname.match(/^\/fatura\/([\w-]+)$/);
     if (request.method === "GET" && fm) {
       if (url.searchParams.get("t") !== (await videoImza(env, "fatura-" + fm[1]))) return new Response("Yetkisiz", { status: 401 });
@@ -2930,7 +2991,7 @@ export default {
     }
     if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
-      if (url.pathname === "/bildirimler") ctx.waitUntil(indirKontrol(env).catch(() => {}));
+      if (url.pathname === "/bildirimler") { ctx.waitUntil(indirKontrol(env).catch(() => {})); ctx.waitUntil(nisKontrol(env).catch(() => {})); }
       if (url.pathname === "/sabah") { await uykuKaydet(env, "kalk").catch(() => {}); return Response.json(await sabahOzeti(env)); }
       const son = parseInt(url.searchParams.get("son") || "0");
       return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });
