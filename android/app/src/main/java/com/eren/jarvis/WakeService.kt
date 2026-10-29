@@ -169,7 +169,9 @@ class WakeService : Service(), RecognitionListener {
         val esik = when (getSharedPreferences("jarvis", MODE_PRIVATE).getString("hassasiyet", "normal")) { "yuksek" -> 0.45; "dusuk" -> 0.78; else -> 0.6 }
         val temiz = metin.replace("[unk]", "").trim().replace(Regex("\\s+"), " ")
         if (metin.isNotBlank()) bildirimYaz("Son duyduğum: " + temiz.ifEmpty { "?" } + " (%" + (guven * 100).toInt() + ")")
-        if (TETIK.matches(temiz) && guven >= esik) {
+        // Cumle icinde gecen benzer sesle uyanma: ifade SADECE uyandirma kelimesinden olusmali ([unk] yok, en fazla 2 kelime)
+        val yalniz = !metin.contains("[unk]") && temiz.split(" ").size <= 2
+        if (yalniz && TETIK.matches(temiz) && guven >= esik) {
             tetiklendi = true
             ana.post {
                 birak("konuşuyor")

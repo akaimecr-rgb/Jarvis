@@ -334,7 +334,10 @@ async function canliMod(){
         if(sc.inputTranscription&&sc.inputTranscription.text){c.senMetin+=sc.inputTranscription.text;c.sonSes=Date.now()}
         if(sc.outputTranscription&&sc.outputTranscription.text)c.onunMetin+=sc.outputTranscription.text;
         ((sc.modelTurn&&sc.modelTurn.parts)||[]).forEach(function(p){if(p.inlineData&&p.inlineData.data)cal24(p.inlineData.data)});
-        if(sc.turnComplete){if(c.senMetin.trim())gunlukYaz("sen","Sen: "+c.senMetin.trim());if(c.onunMetin.trim())gunlukYaz("jarvis","Jarvis: "+c.onunMetin.trim());c.senMetin="";c.onunMetin="";c.sonSes=Date.now()}
+        if(sc.turnComplete){var sm=c.senMetin.trim(),om=c.onunMetin.trim();if(sm)gunlukYaz("sen","Sen: "+sm);if(om)gunlukYaz("jarvis","Jarvis: "+om);
+          if(sm||om)fetch("/kaydet",{method:"POST",headers:H(),body:JSON.stringify({sen:sm,jarvis:om})}).catch(function(){});
+          if(sm&&/(görüşürüz|gorusuruz|kapatıyorum|tamam bu kadar|iyi geceler)/i.test(sm))setTimeout(function(){canliKapat("Canlı sohbet kapandı.")},2500);
+          c.senMetin="";c.onunMetin="";c.sonSes=Date.now()}
       }
       if(m.toolCall){
         var cevaplar=[];

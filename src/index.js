@@ -812,6 +812,34 @@ async function puanVer(env, puan) {
 }
 
 // Gunun konusmalarini egitim verisi olarak GitHub'a ekler (veri/YYYY-AA.jsonl)
+// Her konusmayi kalici kaydet (yazili, sesli ve canli sohbet)
+async function sohbetKaydet(env, sen, jarvis, kaynak) {
+  if (!sen && !jarvis) return;
+  const g = await kvOku(env, "gecmis", []);
+  if (sen) g.push({ role: "user", content: String(sen).slice(0, 2000) });
+  if (jarvis) g.push({ role: "assistant", content: String(jarvis).slice(0, 2000) });
+  await kvYaz(env, "gecmis", g.slice(-30));
+  const v = await kvOku(env, "veri_bugun", []);
+  v.push({ z: Date.now(), eren: sen || "", jarvis: jarvis || "", kaynak: kaynak || "canli", puan: 0 });
+  await kvYaz(env, "veri_bugun", v.slice(-400));
+}
+
+// Gece: gunun sohbetlerinden kalici bilgileri cikarip hafizaya ekle
+async function hafizaOzetle(env) {
+  const v = await kvOku(env, "veri_bugun", []);
+  if (v.length < 2) return 0;
+  const notlar = await kvOku(env, "notlar", []);
+  const metin = v.map((x) => `Eren: ${x.eren}\nJarvis: ${x.jarvis}`).join("\n").slice(-24000);
+  const sistem = "Asagida Eren ile Jarvis'in bugunku konusmalari var. Eren hakkinda ILERIDE ISE YARAYACAK kalici bilgileri cikar: musteriler, isler, fiyatlar, planlar, kararlar, tercihler, onemli kisiler/tarihler, hedefler. " +
+    "Gecici seyleri (hava, anlik ruh hali, selamlasma) ve zaten bilinenleri ALMA. Her bilgi tek kisa Turkce cumle. En fazla 12. SADECE JSON: {\"yeni\":[\"...\"]}\n\nZATEN BILINENLER:\n- " + notlar.slice(-80).join("\n- ");
+  let j = null;
+  try { j = JSON.parse(await sorGemini(env, sistem, [{ role: "user", content: metin }], MODELLER(env).sohbet, { json: true })); }
+  catch (e) { try { if (env.GROQ_API_KEY) j = JSON.parse(String(await sorGroq(env, sistem, [{ role: "user", content: metin }])).replace(/^[^{]*/, "").replace(/[^}]*$/, "")); } catch (e2) {} }
+  const yeni = ((j && j.yeni) || []).map((x) => String(x).trim()).filter((x) => x && !notlar.includes(x)).slice(0, 12);
+  if (yeni.length) { await kvYaz(env, "notlar", notlar.concat(yeni).slice(-150)); await gunlukEkle(env, "Bugünkü sohbetlerden " + yeni.length + " yeni bilgi hafızama ekledim"); }
+  return yeni.length;
+}
+
 async function veriKaydet(env) {
   const v = await kvOku(env, "veri_bugun", []);
   if (!v.length || !env.GITHUB_TOKEN) return 0;
@@ -2655,6 +2683,7 @@ export default {
     ctx.waitUntil((async () => {
       try { await yedekAl(env); } catch (e) { await gunlukEkle(env, "Yedek alınamadı: " + e.message); }
       try { await geceOgren(env); } catch (e) {}
+      try { await hafizaOzetle(env); } catch (e) {}
       try { await veriKaydet(env); } catch (e) { await gunlukEkle(env, "Veri kaydı olmadı: " + e.message); }
       try {
         const sonuc = await kendiniGelistir(env);
@@ -2735,7 +2764,10 @@ export default {
       if (!r.ok || !j.name) return Response.json({ hata: "Canli anahtar alinamadi (" + r.status + ") " + JSON.stringify(j).slice(0, 120) }, { status: 502 });
       env.__kok = url.origin;
       const notlar = await kvOku(env, "notlar", []);
-      const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.slice(-40).join("\n- ") : "") + (await baglam(env).catch(() => "")) +
+      const sonKonusma = (await kvOku(env, "gecmis", [])).slice(-20).map((g) => (g.role === "user" ? "Eren: " : "Jarvis: ") + String(g.content).slice(0, 300)).join("\n");
+      const sistem = SISTEM_TEMEL + (notlar.length ? "\n\nEren hakkinda bildiklerin:\n- " + notlar.slice(-60).join("\n- ") : "") + (await baglam(env).catch(() => "")) +
+        (sonKonusma ? "\n\nSON KONUSMALARINIZ (hatirla, gerekirse atif yap):\n" + sonKonusma : "") +
+        "\n\nEren kalici bir bilgi soylerse (musteri, fiyat, plan, tercih) hafiza aracini degil, sadece aklinda tut; gece otomatik kaydedilir." +
         "\n\nCANLI SESLI SOHBET: Eren seninle telefonda konusur gibi konusuyor. Turkce, dogal, kisa (1-3 cumle) konus; liste/markdown kullanma. " +
         "Bir is istediginde (harita, kurgu, ilan, hatirlatma, hava, mesaj taslagi...) uygun araci cagir, sonucu kendi cumlelerinle kisaca soyle. Linkleri sesli okuma, 'ekrana koydum' de. " +
         "Eren 'gorusuruz', 'kapat', 'tamam bu kadar' derse kisaca vedalas ve sohbeti_bitir aracini cagir.";
@@ -2743,6 +2775,12 @@ export default {
       const araclar = ARACLAR.slice(0, 60).map((t) => ({ name: t.function.name, description: t.function.description.slice(0, 300), ...(Object.keys(t.function.parameters.properties || {}).length ? { parameters: tip(t) } : {}) }));
       araclar.push({ name: "sohbeti_bitir", description: "Eren konusmayi bitirmek istediginde sesli sohbeti kapatir." });
       return Response.json({ token: j.name, modeller: (env.CANLI_MODEL || "gemini-3.1-flash-live-preview,gemini-3.8-live,gemini-2.5-flash-native-audio-preview-12-2025").split(","), ses: env.CANLI_SES || "Charon", sistem, araclar });
+    }
+    if (request.method === "POST" && url.pathname === "/kaydet") {
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      const { sen = "", jarvis = "" } = await request.json().catch(() => ({}));
+      await sohbetKaydet(env, sen, jarvis, "canli");
+      return Response.json({ tamam: true });
     }
     if (request.method === "POST" && url.pathname === "/arac") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
