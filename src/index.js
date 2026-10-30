@@ -1274,14 +1274,19 @@ async function arastir(env, soru) {
         try {
           const g = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + env.GROQ_API_KEY },
             body: JSON.stringify({ model: gm, messages: [{ role: "user", content: soru + "\n\nWebde ara; blog, makale, haber ve forum yazilarini ve videolari incele. Turkce, net cevap ver, sonda kaynak linklerini yaz." }] }) });
-          if (!g.ok) continue;
+          if (!g.ok) { son += " | " + gm + " " + g.status; continue; }
           const gj = await g.json(); const m = gj.choices?.[0]?.message?.content || "";
           if (m.length < 50) continue;
           const urller = [...new Set(m.match(/https?:\/\/[^\s)\]]+/g) || [])].slice(0, 5);
           return { metin: m, linkler: urller.map((u, i) => ({ ad: "KAYNAK " + (i + 1), url: u })) };
-        } catch (e) {}
+        } catch (e) { son += " | groq " + e.message; }
       }
     }
+    // Son care: internet olmadan bildikleriyle cevap (bos donmesin)
+    try {
+      const m = env.GROQ_API_KEY ? await sorGroq(env, SISTEM_TEMEL, [{ role: "user", content: soru + "\n\n(Internet aramasi su an calismiyor; bildiklerinle Turkce cevap ver ve basta 'Internete su an ulasamadim, bildiklerimle anlatiyorum' de.)" }]) : "";
+      if (m && m.length > 50) return { metin: m, linkler: [] };
+    } catch (e) {}
     throw new Error(son);
   }
   const j = await r.json();
