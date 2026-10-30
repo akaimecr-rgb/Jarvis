@@ -4,7 +4,7 @@ Kurulum (bir kez):  pip install vosk sounddevice numpy requests
 Calistir:           python jarvis_laptop.py
 Ilk calistirmada sifre sorar ve jarvis_ayar.json'a kaydeder.
 """
-import io, json, os, queue, re, sys, time, wave, zipfile, tempfile, subprocess
+import io, json, os, queue, threading, re, sys, time, wave, zipfile, tempfile, subprocess
 import numpy as np, requests, sounddevice as sd
 from vosk import Model, KaldiRecognizer
 
@@ -83,6 +83,42 @@ UYGULAMALAR = {  # Jarvis'in acabilecegi uygulamalar (Windows)
     "premiere": "start \"\" \"Adobe Premiere Pro.exe\"", "notepad": "notepad", "hesap makinesi": "calc", "youtube": "start https://www.youtube.com",
 }
 
+def indir_yukle(sifre, d):
+    """Videoyu indirir, Drive'a yukler, Jarvis'e haber verir."""
+    link, _, klasor = d.partition("|")
+    ind = os.path.join(os.path.expanduser("~"), "Downloads", "Jarvis")
+    os.makedirs(ind, exist_ok=True)
+    H = {"x-secret": sifre}
+    try:
+        try:
+            import imageio_ffmpeg; ff = ["--ffmpeg-location", imageio_ffmpeg.get_ffmpeg_exe()]
+        except Exception: ff = []
+        r = subprocess.run([sys.executable, "-m", "yt_dlp", *ff, "-f", "bv*[height<=1080]+ba/b", "--merge-output-format", "mp4",
+                            "-o", os.path.join(ind, "%(title).80s.%(ext)s"), "--print", "after_move:filepath", "--no-simulate", link],
+                           capture_output=True, text=True, timeout=1800)
+        yol = (r.stdout.strip().splitlines() or [""])[-1]
+        if not os.path.exists(yol):
+            raise Exception("indirilemedi: " + (r.stderr.strip().splitlines() or ["?"])[-1][:150])
+        ad = os.path.basename(yol)
+        print("[Jarvis] Indirildi:", ad, "- Drive'a yukleniyor...")
+        t = requests.get(URL + "/drive-yukle", headers=H, params={"klasor": klasor}, timeout=60).json()
+        if not t.get("token"):
+            raise Exception("Drive: " + str(t.get("hata")))
+        bas = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                            headers={"Authorization": "Bearer " + t["token"], "Content-Type": "application/json"},
+                            json={"name": ad, "parents": [t["klasor"]]}, timeout=60)
+        bas.raise_for_status()
+        with open(yol, "rb") as f:
+            y = requests.put(bas.headers["Location"], data=f, headers={"Authorization": "Bearer " + t["token"]}, timeout=3600)
+        y.raise_for_status()
+        fid = y.json()["id"]
+        print("[Jarvis] Drive'a yuklendi:", ad)
+        requests.post(URL + "/drive-yukle", headers=H, json={"id": fid, "ad": ad}, timeout=30)
+    except Exception as e:
+        print("[Jarvis] Indirme hatasi:", e)
+        try: requests.post(URL + "/drive-yukle", headers=H, json={"hata": str(e)[:150]}, timeout=30)
+        except Exception: pass
+
 def komut_dongusu(sifre):
     """Jarvis'in laptopa yolladigi komutlari 15 sn'de bir alir ve yapar."""
     import threading, webbrowser
@@ -99,8 +135,7 @@ def komut_dongusu(sifre):
                         if c: subprocess.Popen(os.path.expandvars(c), shell=True)
                         else: print("Bilinmeyen uygulama:", d)
                     elif tur == "indir":
-                        hedef = os.path.join(os.path.expanduser("~"), "Downloads", "%(title)s.%(ext)s")
-                        subprocess.Popen([sys.executable, "-m", "yt_dlp", "-o", hedef, d])
+                        threading.Thread(target=indir_yukle, args=(sifre, d), daemon=True).start()
                     elif tur == "yaz":
                         subprocess.run("clip", input=d.encode("utf-16"), shell=True)
             except Exception as e:

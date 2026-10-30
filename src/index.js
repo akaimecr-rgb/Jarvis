@@ -2237,6 +2237,10 @@ async function videoIndir(env, a = {}) {
     if (m) url = m[0];
   }
   if (!/^https?:\/\//.test(url)) return "HATA: indirilecek video linki yok. Once youtube_ara ile bul ya da linki ver.";
+  if (/youtu\.?be/i.test(url) && Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) < 6 * 60e3) {
+    await laptopKomut(env, { tur: "indir", deger: url + "|" + String(a.klasor || "") });
+    return "YouTube buluttan indirmeye izin vermiyor, laptopa verdim: laptop indirip Drive'a yükleyecek, bitince haber veririm.";
+  }
   const klasor = ["ornek", "ham", "malzeme"].includes(a.klasor) ? a.klasor : "ornek";
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/indir.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { url, klasor } }) });
   await kvYaz(env, "indir_bekliyor", { url, klasor, zaman: Date.now() });
@@ -2366,8 +2370,9 @@ async function indirKontrol(env) {
       const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/indir.log?ref=indir-log`)).content);
       if (k.includes("url=" + ib.url) && kayitYeniMi(k, ib.zaman)) {
         await kvYaz(env, "indir_bekliyor", null);
+        if (k.includes("INDIRILEMEDI")) await laptopKomut(env, { tur: "indir", deger: ib.url + (ib.klasor ? "|" + ib.klasor : "") });
         const did = (k.match(/DRIVE_ID: (\S+)/) || [])[1], bas = (k.match(/BASLIK: (.*)/) || [])[1] || "video";
-        await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? "Site videoyu vermedi (YouTube bazen bulutu engelliyor)." : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
+        await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? (Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) < 6 * 60e3 ? "Bulut indiremedi, laptopa verdim; inince Drive'a yükleyip haber vereceğim." : "YouTube bulutu engelliyor. Laptop programı açılınca indirecek.") : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
       } else if (Date.now() - ib.zaman > 20 * 60e3) await kvYaz(env, "indir_bekliyor", null);
     }
   } catch (e) {}
@@ -2519,7 +2524,7 @@ const ARACLAR = [
   ["nis_analiz", "Bir YouTube nisini analiz eder: o konuda en cok izlenen videolari bulup izler; hook'lari, kurgu stilini ve video akisini cikarir; Eren'in kanali icin baslik, hook, akis, kurgu, aciklama ve etiketlerle 3 video plani ve kurgu stil dosyasi yazar (bulutta, 5-15 dk).", { nis: "konu/nis, ornek 'valorant taktik' ya da 'uzay bilim'", tur: "shorts veya uzun", dil: "kanalin dili (varsayilan Turkce)" }],
   ["nis_raporlari", "Daha once yapilan nis analizlerinin rapor linklerini listeler.", {}],
   ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
-  ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu yt-dlp ile Indirilenler'e indirir), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
+  ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu indirip Drive'a yukler; deger=link), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
   ["dolar_alarm", "Dolar/TL kurunu soyler; kur verilirse o seviye gecilince bildirim kurar.", { kur: "TL seviyesi (opsiyonel)" }],
@@ -3077,6 +3082,19 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
         await gunlukEkle(env, "Canlı sohbette araç: " + ad).catch(() => {});
         return Response.json(typeof r === "string" ? { metin: r } : r);
       } catch (e) { return Response.json({ metin: "HATA: " + e.message }); }
+    }
+    if (url.pathname === "/drive-yukle") {   // laptop: Drive'a yukleme icin gecici token / bitti bildirimi
+      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (request.method === "POST") {
+        const j = await request.json().catch(() => ({}));
+        await bildirimEkle(env, j.id ? "Video indirildi 📥" : "Laptop indiremedi", String(j.ad || j.hata || "video").slice(0, 100) + (j.id ? " → Drive" : ""), j.id ? "https://drive.google.com/file/d/" + j.id + "/view" : "");
+        if (j.id) await gunlukEkle(env, "Laptop indirdi ve Drive'a yükledi: " + String(j.ad || "").slice(0, 60));
+        return Response.json({ ok: true });
+      }
+      const b = await driveBilgi(env);
+      if (!b) return Response.json({ hata: "Drive bagli degil" });
+      const k = (await klasorBul(env, url.searchParams.get("klasor") || "").catch(() => null)) || b.klasorler.ham;
+      return Response.json({ token: b.token, klasor: k });
     }
     if (request.method === "GET" && url.pathname === "/laptop-komut") {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
