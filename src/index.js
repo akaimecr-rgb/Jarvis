@@ -1250,10 +1250,11 @@ async function baglam(env) {
 // Gemini + Google arama ile internet arastirmasi
 async function arastir(env, soru) {
   // Yogunlukta (429/503) bekleyip tekrar dene, sonra baska modele gec
-  const modeller = [env.ARASTIRMA_MODEL || "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"];
+  const modeller = [...new Set([env.ARASTIRMA_MODEL || "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-flash-lite-latest"])];
   let r, son = "";
   for (let i = 0; i < modeller.length * 2; i++) {
     const model = modeller[Math.floor(i / 2)];
+    if (i % 2 && r && r.status !== 429 && r.status !== 503 && r.status !== 500) continue;   // kalici hata: tekrar deneme, sonraki modele gec
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1263,8 +1264,7 @@ async function arastir(env, soru) {
       }),
     });
     if (r.ok) break;
-    son = "Arastirma " + r.status;
-    if (r.status !== 429 && r.status !== 503 && r.status !== 500) break;
+    son = "Arastirma " + model + " " + r.status + " " + (await r.clone().text().catch(() => "")).slice(0, 120);
     await new Promise((ok) => setTimeout(ok, i % 2 ? 300 : 1500));
   }
   if (!r.ok) {
