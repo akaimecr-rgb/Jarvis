@@ -1749,6 +1749,8 @@ async function haftalikRapor(env) {
 
 async function saatlikIs(env) {
   const z = trSimdi();
+  // 0) Gece arastirmalari: 01-08 arasi her saat kalan konulari yap
+  try { const sa = +String(z.saat || "").split(":")[0]; if (sa >= 1 && sa <= 8) await geceArastirmalariYap(env); } catch (e) {}
   // 1) Yeni ilanlar
   try {
     const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
@@ -2233,14 +2235,21 @@ async function sabahaArastir(env, a = {}) {
 async function geceArastirmalariYap(env) {
   const l = await kvOku(env, "gece_arastirma", []);
   if (!l.length) return;
-  const raporlar = [];
-  for (const x of l.slice(0, 3)) {
-    try {
-      const r = await arastir(env, x.konu + "\n\nDetayli, somut ve Eren'in isine yarayacak bir rapor yaz: onemli bulgular, rakamlar, firsatlar, yapilacak 3-5 adim, kaynaklar. Turkce.");
-      raporlar.push({ konu: x.konu, metin: r.metin.slice(0, 3500), linkler: (r.linkler || []).slice(0, 5), tarih: trSimdi().tarih });
-    } catch (e) { raporlar.push({ konu: x.konu, metin: "Arastirma yapilamadi: " + e.message, linkler: [], tarih: trSimdi().tarih }); }
+  const raporlar = await kvOku(env, "gece_raporlari_yeni", []), kalan = [];
+  const x = l[0];   // her calismada 1 konu (kota/zaman asimi olmasin); saatlik is kalanlari yapar
+  try {
+    const r = await arastir(env, x.konu + "\n\nDetayli, somut ve Eren'in isine yarayacak bir rapor yaz: onemli bulgular, rakamlar, firsatlar, yapilacak 3-5 adim, kaynaklar. Turkce.");
+    if (!r || !r.metin || r.metin.length < 200) throw new Error("bos cevap");
+    raporlar.push({ konu: x.konu, metin: r.metin.slice(0, 3500), linkler: (r.linkler || []).slice(0, 5), tarih: trSimdi().tarih });
+  } catch (e) {
+    x.deneme = (x.deneme || 0) + 1;
+    if (x.deneme < 4) kalan.push(x);
+    else raporlar.push({ konu: x.konu, metin: "4 denemede de araştırılamadı: " + e.message, linkler: [], tarih: trSimdi().tarih });
   }
-  await kvYaz(env, "gece_arastirma", l.slice(3));
+  const yeniListe = [...l.slice(1), ...kalan];
+  await kvYaz(env, "gece_arastirma", yeniListe);
+  await kvYaz(env, "gece_raporlari_yeni", yeniListe.length ? raporlar : []);
+  if (yeniListe.length) return;
   await kvYaz(env, "gece_raporlari", raporlar);
   await gunlukEkle(env, "Gece " + raporlar.length + " konu araştırdım, sabah anlatacağım");
 }
