@@ -152,6 +152,37 @@ class JarvisActivity : Activity() {
             }
         }
         @JavascriptInterface fun hatirlaticiKur(json: String) { hatirlaticilariKur(this@JarvisActivity, json) }
+        /** Rehberde kisiyi bul (ya da numara) ve ara. Sonuc: "aradim:Ad" / "yok" / "izin" */
+        @JavascriptInterface fun ara(kim: String): String {
+            val c = this@JarvisActivity
+            val hedef = kim.trim()
+            var numara = if (Regex("^[+0-9 ()-]{5,}$").matches(hedef)) hedef else ""
+            var ad = hedef
+            if (numara.isEmpty()) {
+                if (c.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    runOnUiThread { requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS, android.Manifest.permission.CALL_PHONE), 8) }
+                    return "izin"
+                }
+                val tr = java.util.Locale("tr")
+                val aranan = hedef.lowercase(tr)
+                var enIyi: Pair<String, String>? = null
+                c.contentResolver.query(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)?.use { k ->
+                    while (k.moveToNext()) {
+                        val n = k.getString(0) ?: continue; val no = k.getString(1) ?: continue
+                        val nl = n.lowercase(tr)
+                        if (nl == aranan) { enIyi = n to no; break }
+                        if (enIyi == null && (nl.contains(aranan) || aranan.contains(nl))) enIyi = n to no
+                    }
+                }
+                val b = enIyi ?: return "yok"
+                ad = b.first; numara = b.second
+            }
+            val izinli = c.checkSelfPermission(android.Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val niyet = Intent(if (izinli) Intent.ACTION_CALL else Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + numara)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runOnUiThread { try { startActivity(niyet) } catch (_: Exception) {} }
+            return "aradim:" + ad
+        }
     }
 
     override fun onDestroy() {

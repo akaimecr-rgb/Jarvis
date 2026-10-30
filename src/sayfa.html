@@ -453,6 +453,10 @@ function panelSadelestir(baslik,ozet){var tb=$("havaTablo");var satirlar=Array.p
   td.appendChild(b);tr.appendChild(td);tb.appendChild(tr)}
 function eskiKopya(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(x){}a.remove()}
 function panelGoster(e){
+  if(e&&e.ara){var sn="";try{sn=(window.Android&&Android.ara)?Android.ara(e.ara):""}catch(x){}
+    if(!window.Android||!Android.ara){gunlukYaz("","Arama için Jarvis uygulamasının yeni sürümü (APK) gerekiyor.");}
+    else if(sn==="yok")gunlukYaz("","Rehberde \""+e.ara+"\" bulunamadı.");else if(sn==="izin")gunlukYaz("","Rehber izni istendi, izin verip tekrar söyle.");
+    else gunlukYaz("","📞 Aranıyor: "+sn.replace("aradim:",""));if(!e.panel)return}
   if(e&&e.kopyala){var km=e.kopyala;var li3=gunlukYaz("","📋 Gönderilecek mesaj: "+km);var b3=document.createElement("button");b3.textContent="KOPYALA";
     b3.style.cssText="display:block;width:auto;height:auto;min-height:0;margin:6px 0 2px;padding:6px 14px;font-size:12px;letter-spacing:1px;border:1px solid #22d3ee;background:#062030;color:#cffafe;border-radius:8px";
     b3.onclick=function(){var ok=function(){b3.textContent="KOPYALANDI ✓";if(e.ac){if(window.Android&&Android.ac)Android.ac(e.ac);else window.open(e.ac,"_blank")}};

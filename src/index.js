@@ -2442,6 +2442,7 @@ const ARAC_GRUPLARI = [
   [/harca|aldım|aldim|ödedim|odedim|masraf|tl\b|lira|market|fatura/i, ["harcama"]],
   [/hedef|hafta/i, ["haftalik_hedef", "musteri_raporu"]],
   [/youtube|video bul|videosu|kanalı|kanali|ara\b|bul\b|stil/i, ["youtube_ara", "stil_cikar", "telefonda_ac"]],
+  [/\bara\b|arar m|arayab|telefon et|çağır|cagir/i, ["telefon_ara"]],
   [/aç\b|ac\b|açar|acar|telefonda|telefondan|uygulama|git\b|gir\b/i, ["telefonda_ac", "youtube_ara", "laptop_komut"]],
   [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
   [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
@@ -2478,6 +2479,7 @@ const ARACLAR = [
   ["musteri_raporu", "Musteriye bu haftaki isleri anlatan kisa Ingilizce + Turkce rapor mesaji taslagi hazirlar (gondermez).", { musteri: "musteri adi (varsayilan GKey)" }],
   ["mola", "Mesai disinda su/goz/esneme mola hatirlaticisini acar ya da kapatir.", { acik: "true veya false" }],
   ["youtube_ara", "YouTube'da video arar ve linklerini verir (ornek: 'Baykalem son videosu', 'valorant lineup shorts'). Sonra stil_cikar ya da telefonda_ac ile kullanilabilir.", { sorgu: "arama", tur: "shorts ya da bos", adet: "kac sonuc" }],
+  ["telefon_ara", "Eren'in telefonundan birini arar (rehberdeki isim ya da numara). Ornek: 'annemi ara', 'Songul'u ara'. Rehberde nasil kayitliysa o adi ver.", { kim: "rehberdeki ad ya da telefon numarasi" }],
   ["telefonda_ac", "Bir linki/uygulamayi Eren'in telefonunda acar (YouTube linki YouTube uygulamasinda acilir). Ornek: youtube, discord, drive, instagram, tiktok, spotify, whatsapp ya da tam link.", { hedef: "link ya da uygulama adi" }],
   ["kelime_ogret", "Eren'in kisisel sozlugune kelime ekler/siler/listeler (isimler, musteriler, oyun terimleri, yer adlari). Sesli anlamada bu kelimeler dogru yazilir. Eren 'su kelimeyi ogren' derse kullan.", { kelime: "dogru yazilis (opsiyonel)", aciklama: "ne oldugu (opsiyonel)", duyulan: "yanlis duyulan hali (opsiyonel)", sil: "silinecek kelime (opsiyonel)" }],
   ["duzelt", "Eren 'hayir, sunu dedim', 'yanlis anladin, ... dedim' derse cagir: yanlis anlamayi kaydeder (ogrenme verisi), sonra dogru istegi yap.", { dogru: "Eren'in asil dedigi", duyulan: "yanlis anlasilan hali (opsiyonel)" }],
@@ -2579,6 +2581,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "gece_raporu") { const gr = await kvOku(env, "gece_raporlari", []); return gr.length ? { metin: gr.map((x) => `[${x.tarih}] ${x.konu}: ${x.metin}`).join("\n\n"), linkler: gr.flatMap((x) => x.linkler || []).slice(0, 6) } : "Henuz gece raporu yok. Bekleyen konular: " + ((await kvOku(env, "gece_arastirma", [])).map((x) => x.konu).join("; ") || "yok"); }
     if (ad === "nis_analiz") return await nisAnaliz(env, a);
     if (ad === "nis_raporlari") { const l = await kvOku(env, "nis_raporlari", []); return l.length ? { metin: "Nis raporlari: " + l.map((x) => `${x.nis} (${x.tarih}, stil adi: ${x.slug})`).join("; "), linkler: l.slice(-6).map((x) => ({ ad: x.nis.slice(0, 20), url: x.link })) } : "Henuz nis analizi yapilmadi."; }
+    if (ad === "telefon_ara") { const k = s(a.kim).replace(/['’]?(y?[ıiuü]|y?[ae])?\s*ara(r m[ıi]s[ıi]n)?$/i, "").trim() || s(a.kim); return { metin: k + " araniyor (telefon kendisi arayacak; bulunamazsa ekranda yazar).", ekran: { ara: k } }; }
     if (ad === "video_indir") return await videoIndir(env, a);
     if (ad === "laptop_komut") return await laptopKomut(env, a);
     if (ad === "telefonda_ac") {
