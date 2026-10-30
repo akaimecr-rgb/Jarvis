@@ -1243,7 +1243,8 @@ async function baglam(env) {
   try { const v = await havaAl(env); h = `Hava (${v.yer}): şu an ${v.simdi}; bugün ${v.gunler[0].min}-${v.gunler[0].max}°C, yağmur ihtimali %${v.gunler[0].yagmur}, gün batımı ${v.gunler[0].gunbatimi}.`; } catch (e) {}
   const k = await konumAl(env);
   const mesai = mesaideMi(env) ? " Eren su an garsonluk mesaisinde (iste): cevaplarini ozellikle kisa tut, uzun is onerme." : "";
-  return `\n\nSU ANKI DURUM: ${z.gun} ${z.tarih}, saat ${z.saat} (Türkiye). Eren'in konumu: ${k.ad}. ${h}${mesai}`;
+  const sa = +z.saat.slice(0, 2), selam = sa >= 5 && sa < 12 ? "günaydın" : sa < 18 ? "iyi günler" : sa < 22 ? "iyi akşamlar" : "iyi geceler (gece yarısı; ASLA 'günaydın' deme)";
+  return `\n\nSU ANKI DURUM: ${z.gun} ${z.tarih}, saat ${z.saat} (Türkiye). Selamlaşırken saate uy: şu an uygun selam = ${selam}. Eski konuşmalardaki selamları tekrar etme. Eren'in konumu: ${k.ad}. ${h}${mesai}`;
 }
 
 // Gemini + Google arama ile internet arastirmasi
@@ -1923,12 +1924,12 @@ async function sabahOzeti(env) {
   if (bk) parcalar.push("Onay bekleyen kod onerin: " + bk.ozet);
   if (env.DRIVE_SCRIPT_URL) { try { parcalar.push(await mailKontrol(env, {})); } catch (e) {} }
   const sistem = SISTEM_TEMEL + "\n\nEren az once uyandi. Asagidaki bilgilerle ona sicak, dogal ve kisa bir sabah ozeti ver (en fazla 6-7 cumle): " +
-    "gunaydin de, bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
+    (saat 05-12 arasiysa "gunaydin", degilse saate uygun selam ver: gece ise "gunaydin" DEME) ve bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
     "gune dair tek bir faydali oneride bulun. En sonda 'Gunun Ingilizcesi' de: musterilerle yazisirken ise yarayan tek bir kisa Ingilizce kalip, okunusu ve Turkce anlami (her gun farkli olsun). Madde isareti kullanma.";
   const mesaj = [{ role: "user", content: parcalar.join("\n") }];
   let cevap;
   try { cevap = env.GROQ_API_KEY ? await sorGroq(env, sistem, mesaj) : await sorGemini(env, sistem, mesaj, MODELLER(env).sohbet); }
-  catch (e) { cevap = "Günaydın Eren! " + parcalar[0]; }
+  catch (e) { const sa = +trSimdi().saat.slice(0, 2); cevap = (sa >= 5 && sa < 12 ? "Günaydın Eren! " : "Selam Eren! ") + parcalar[0]; }
   let ekran = null;
   try { ekran = (await gunlukPlan(env)).ekran; } catch (e) {}
   return { cevap, ekran };

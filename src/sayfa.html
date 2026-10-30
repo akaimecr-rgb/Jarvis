@@ -584,7 +584,7 @@ async function alarmMod(){
       if(/uyand/i.test(v.metin||"")){try{if(window.Android&&Android.uyandim)Android.uyandim()}catch(x){}
         durum("dusunuyor");
         try{var o=await (await fetch("/sabah",{headers:H()})).json();gunlukYaz("jarvis","Jarvis: "+o.cevap);if(o.ekran)panelGoster(o.ekran);await konus(o.cevap)}
-        catch(e){await konus("Günaydın Eren! Güzel bir gün olsun.")}
+        catch(e){await konus((new Date().getHours()>=5&&new Date().getHours()<12)?"Günaydın Eren! Güzel bir gün olsun.":"Selam Eren!")}
         await bekle(20000);androidBitti();return}
     }catch(e){}}
   }
