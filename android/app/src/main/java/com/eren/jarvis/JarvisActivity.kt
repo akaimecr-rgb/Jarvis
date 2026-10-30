@@ -152,6 +152,10 @@ class JarvisActivity : Activity() {
             }
         }
         @JavascriptInterface fun hatirlaticiKur(json: String) { hatirlaticilariKur(this@JarvisActivity, json) }
+        @JavascriptInterface fun uyandim() {
+            val bugun = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            getSharedPreferences("jarvis", MODE_PRIVATE).edit().putString("uyandi_tarih", bugun).apply()
+        }
         /** Rehberde kisiyi bul (ya da numara) ve ara. Sonuc: "aradim:Ad" / "yok" / "izin" */
         @JavascriptInterface fun ara(kim: String): String {
             val c = this@JarvisActivity

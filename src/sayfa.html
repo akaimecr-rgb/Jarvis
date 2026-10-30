@@ -581,7 +581,7 @@ async function alarmMod(){
     if(b64){try{
       var v=await (await fetch("/dinle",{method:"POST",headers:H(),body:JSON.stringify({ses:b64})})).json();
       if(v.metin)gunlukYaz("sen","Sen: "+v.metin);
-      if(/uyand/i.test(v.metin||"")){
+      if(/uyand/i.test(v.metin||"")){try{if(window.Android&&Android.uyandim)Android.uyandim()}catch(x){}
         durum("dusunuyor");
         try{var o=await (await fetch("/sabah",{headers:H()})).json();gunlukYaz("jarvis","Jarvis: "+o.cevap);if(o.ekran)panelGoster(o.ekran);await konus(o.cevap)}
         catch(e){await konus("Günaydın Eren! Güzel bir gün olsun.")}

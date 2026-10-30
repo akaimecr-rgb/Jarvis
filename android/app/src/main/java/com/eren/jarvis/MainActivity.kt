@@ -31,7 +31,7 @@ class MainActivity : Activity() {
             finish()
             return
         }
-        val izinler = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION)
+        val izinler = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS)
         if (Build.VERSION.SDK_INT >= 33) izinler.add(Manifest.permission.POST_NOTIFICATIONS)
         requestPermissions(izinler.toTypedArray(), 1)
 
@@ -83,6 +83,14 @@ class MainActivity : Activity() {
             hd.text = "Uyanma hassasiyeti: " + hAd()
         }
         k.addView(hd)
+        fun smsAd() = if (hp.getBoolean("sms_acik", true)) "AÇIK (" + hp.getString("sms_kisi", "Annem") + ")" else "KAPALI"
+        lateinit var sb: android.widget.Button
+        sb = dugme("Uyanmazsam 30 dk sonra SMS: " + smsAd()) {
+            hp.edit().putBoolean("sms_acik", !hp.getBoolean("sms_acik", true)).apply(); sb.text = "Uyanmazsam 30 dk sonra SMS: " + smsAd()
+            requestPermissions(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS), 9)
+        }
+        k.addView(sb)
+        k.addView(dugme("SMS'i şimdi dene") { Thread { hp.edit().remove("uyandi_tarih").apply(); uyanmaKontrol(this) }.start() })
         k.addView(dugme("Sesimi öğret (" + SesEslestir.sayi(this) + " kayıt)") { startActivity(Intent(this, SesOgretActivity::class.java)) })
         k.addView(dugme("Dinlemeyi kapat") { servisKomutu(this, WakeService.DURDUR); k.postDelayed({ guncelle() }, 800) })
 
