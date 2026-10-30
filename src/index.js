@@ -1257,7 +1257,7 @@ async function arastir(env, soru) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: soru + "\n\nGuncel internet kaynaklarina (blog, makale, haber, forum, resmi sayfalar; video degil) dayanarak Turkce, kisa ve net cevap ver." }] }],
+        contents: [{ role: "user", parts: [{ text: soru + "\n\nGuncel internet kaynaklarina (blog, makale, haber, forum, resmi sayfalar ve YouTube videolari) dayanarak Turkce, kisa ve net cevap ver." }] }],
         tools: [{ google_search: {} }],
       }),
     });
@@ -1272,7 +1272,7 @@ async function arastir(env, soru) {
       for (const gm of ["groq/compound", "groq/compound-mini"]) {
         try {
           const g = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + env.GROQ_API_KEY },
-            body: JSON.stringify({ model: gm, messages: [{ role: "user", content: soru + "\n\nWebde ara; blog, makale, haber ve forum yazilarini oku (video degil). Turkce, net cevap ver, sonda kaynak linklerini yaz." }] }) });
+            body: JSON.stringify({ model: gm, messages: [{ role: "user", content: soru + "\n\nWebde ara; blog, makale, haber ve forum yazilarini ve videolari incele. Turkce, net cevap ver, sonda kaynak linklerini yaz." }] }) });
           if (!g.ok) continue;
           const gj = await g.json(); const m = gj.choices?.[0]?.message?.content || "";
           if (m.length < 50) continue;
