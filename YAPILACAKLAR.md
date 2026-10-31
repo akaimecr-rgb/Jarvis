@@ -10,6 +10,10 @@
 - YouTube indirme sadece laptoptan (YouTube bulutu engelliyor). Laptop programi kodla eslesir: "laptop kodu 123456".
 - Beyin su an ucretsiz (Gemini/Groq). Claude API eklenince ana beyin Claude olacak.
 
+## Siradaki is (Eren istedi, 31 Ekim)
+- Ilan avi sadece Reddit'e bakiyor; X (Twitter) ve diger ilan siteleri de eklenecek. HENUZ YAPILMADI. Eren sorarsa "henuz eklenmedi" de.
+- Eren video linklerini verince: Ingilizce portfolyo sayfasi + uygun ilanlara basvuru mesajlari (Ingilizce + Turkce).
+
 ## Eski siradaki adimlar
 1. GitHub'da remotion-sablonlar deposuna GEMINI_API_KEY secret'ini ekle (Settings > Secrets and variables > Actions > New repository secret).
 2. Cloudflare'de jarviss Worker'ina GROQ_API_KEY secret'ini ekle (anahtar: console.groq.com > API Keys). Konusmayi cok hizlandirir.
