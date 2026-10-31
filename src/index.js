@@ -30,7 +30,7 @@ const SISTEM_TEMEL =
   "KENDI SISTEMIN (bunlari uydurma): Eren'in sesini yaziya Groq Whisper cevirir. Senin konusma sesin sirayla Cartesia -> ElevenLabs -> Azure -> Gemini -> Google sesiyle uretilir; hepsi olmazsa telefonun kendi sesi calar. " +
   "Hangi servisin calistigini bilmiyorsan tahmin etme, sistem_durumu aracini kullan ve sonucunu aynen soyle. " +
   "YALAN YOK: Bir arac cagirmadan 'yapiyorum, tariyorum, yukluyorum, deniyorum, calisiyor' deme. Bir isin durumunu sorarsa durum aracini (stil_durumu, kurgu_durumu, claude_kod_durumu, drive) cagir; sonucu bilmiyorsan 'bilmiyorum, kontrol edeyim' de ve kontrol et. " +
-  "Yapamadigin bir sey icin 'yapamiyorum' deme; uygun arac yoksa claude_kod ile eklenebilecegini soyle. " +
+  "Yapamadigin bir sey varsa ACIKCA 'bunu yapamiyorum, cunku ...' de ve ne gerektigini soyle; istersen claude_kod ile eklenebilecegini teklif et. Asla gecistirme ya da oyalama. " +
   "Eren kodda, arayuzde ya da bir ozellikte degisiklik/duzeltme isterse 'kod yazamiyorum' DEME: claude_kod aracini cagir (Claude Code bulutta yazar, Eren onaylar). " +
   "RUH HALI: Eren yorgun, stresli, uzgun ya da sinirli gorunurse (kisa sert mesajlar, 'yoruldum', 'bıktım', gece gec saat, uzun mesai sonrasi) " +
   "once bunu fark et ve tek cumleyle yanında oldugunu hissettir; cevabini daha kisa ve sakin tut, ona yeni is yukleme, gerekiyorsa dinlenmesini oner. " +
@@ -1671,6 +1671,7 @@ async function isEkle(env, a) {
 async function isGuncelle(env, a) {
   const isler = await kvOku(env, "isler", []);
   const ara = String(a.is || "").toLocaleLowerCase("tr");
+  if (!ara || !["teslim", "odendi", "iptal"].includes(a.durum)) return "HATA: hangi is ve ne oldu (teslim / odendi / iptal)? Eren'e sor.";
   const adaylar = isler.filter((i) => i.id === ara || i.musteri.toLocaleLowerCase("tr").includes(ara) || i.aciklama.toLocaleLowerCase("tr").includes(ara));
   const is = (a.durum === "odendi" ? adaylar.filter((i) => !i.odendi) : adaylar.filter((i) => i.durum !== "teslim")).slice(-1)[0] || adaylar.slice(-1)[0];
   if (!is) return "HATA: bu ise uyan kayit bulamadim. Once 'isler' ile listeyi kontrol et.";
@@ -2159,7 +2160,7 @@ async function kanalIstatistik(env, a = {}) {
 async function musteriRaporu(env, a = {}) {
   const ad = String(a.musteri || "GKey").toLowerCase();
   const isler = (await kvOku(env, "isler", [])).filter((i) => i.musteri.toLowerCase() === ad && Date.now() - (i.eklendi || 0) < 7 * 864e5);
-  if (!isler.length) return "Bu hafta " + a.musteri + " icin kayitli is yok. Once is_ekle ile isleri kaydetmek lazim.";
+  if (!isler.length) return "Bu hafta " + (a.musteri || "GKey") + " icin kayitli is yok. Once is_ekle ile isleri kaydetmek lazim.";
   const liste = isler.map((i) => `- ${i.aciklama} (${i.durum === "teslim" || i.odendi ? "delivered" : "in progress"})`).join("\n");
   const tr = isler.map((i) => `- ${i.aciklama} (${i.durum === "teslim" || i.odendi ? "teslim edildi" : "devam ediyor"})`).join("\n");
   return `Musteriye haftalik rapor taslagi (Eren 'gonder' demeden gonderme). EN: "Hey! Quick weekly update:\n${liste}\nLet me know if you want any changes or have new videos for next week!" | TR: "Selam! Haftalik kisa ozet:\n${tr}\nDegisiklik istersen ya da gelecek hafta icin yeni video varsa haber ver!"`;
@@ -2685,7 +2686,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "mola") { const ac = !/false|kapat|hayir|0/i.test(String(a.acik)); await kvYaz(env, "mola_acik", ac); return ac ? "Mola hatırlatıcısı açık (mesai dışında 10, 12 ve 23'te)." : "Mola hatırlatıcısı kapalı."; }
     if (ad === "youtube_ara") return await youtubeAra(env, a);
     if (ad === "kelime_ogret") return await kelimeOgret(env, a);
-    if (ad === "duzelt") return await duzeltme(env, a);
+    if (ad === "duzelt") { if (!a.dogru) return "HATA: Eren'in asil ne dedigini (dogru) bilmeden kaydedemem; ona sor."; return await duzeltme(env, a); }
     if (ad === "sabaha_arastir") return await sabahaArastir(env, a);
     if (ad === "derin_arastir") return await derinArastir(env, a);
     if (ad === "arastirma_durumu") return await arastirmaDurumu(env);
@@ -3157,10 +3158,14 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
         "\n\nCANLI SESLI SOHBET: Eren seninle telefonda konusur gibi konusuyor. Turkce, dogal, kisa (1-3 cumle) konus; liste/markdown kullanma. " +
         "Bir is istediginde (harita, kurgu, ilan, hatirlatma, hava, mesaj taslagi...) uygun araci cagir, sonucu kendi cumlelerinle kisaca soyle. Linkleri sesli okuma, 'ekrana koydum' de. " +
         "Eren 'gorusuruz', 'kapat', 'tamam bu kadar' derse kisaca vedalas ve sohbeti_bitir aracini cagir. " +
+        "DURUSTLUK (EN ONEMLI KURAL): Bir araci cagirmadan ASLA 'yapiyorum, basladim, arastiriyorum, devam ediyor, indiriyorum' deme. Arac sonucu ne diyorsa onu soyle, sure uydurma. " +
+        "Isi yapacak aracin yoksa ya da arac HATA verdiyse geçiştirme: 'Bunu yapamadim/yapamiyorum, cunku ...; olmasi icin ... lazim' de. " +
+        "Eren 'X dakika/saat arastir', 'detayli arastir' derse derin_arastir aracini sure_dk ile cagir (bu gercekten o kadar surer, bitince bildirim gelir). Durumu sorarsa arastirma_durumu cagir. " +
+        "YouTube videosu indirme isi laptoptan yapilir (video_indir bunu kendisi ayarlar). " +
         "KOD: Sen kod yazamiyor olsan bile Jarvis'in kodunu Claude Code degistirebilir. Eren Jarvis'te/arayuzde/bir ozellikte degisiklik ya da duzeltme isterse ASLA 'kod yazamiyorum' deme; isteği ayrintili yazip claude_kod aracini cagir ve 'Claude Code'a verdim, bitince onaylaman gerekecek' de.";
       const tip = (t) => ({ type: "OBJECT", properties: Object.fromEntries(Object.entries(t.function.parameters.properties || {}).map(([k, v]) => [k, { type: "STRING", description: v.description || "" }])) });
       // Tum araclar (onemli olanlar once); aciklamalar kisa tutulur
-      const ONCE = ["claude_kod", "claude_kod_durumu", "harita", "kurgula", "kurgu_durumu", "stil_cikar", "stil_durumu", "video_indir", "youtube_ara", "telefonda_ac", "dm_gonder", "sistem_durumu"];
+      const ONCE = ["derin_arastir", "arastirma_durumu", "arastir", "laptop_eslestir", "claude_kod", "claude_kod_durumu", "harita", "kurgula", "kurgu_durumu", "stil_cikar", "stil_durumu", "video_indir", "youtube_ara", "telefonda_ac", "dm_gonder", "sistem_durumu"];
       const sirali = [...ARACLAR].sort((x, y) => (ONCE.includes(y.function.name) ? 1 : 0) - (ONCE.includes(x.function.name) ? 1 : 0));
       const araclar = sirali.slice(0, 120).map((t) => ({ name: t.function.name, description: t.function.description.slice(0, 220), ...(Object.keys(t.function.parameters.properties || {}).length ? { parameters: tip(t) } : {}) }));
       araclar.push({ name: "sohbeti_bitir", description: "Eren konusmayi bitirmek istediginde sesli sohbeti kapatir." });
