@@ -126,6 +126,10 @@ def komut_dongusu(sifre):
         while True:
             try:
                 r = requests.get(URL + "/laptop-komut", headers={"x-secret": sifre}, timeout=20)
+                if r.status_code == 401:
+                    print("[Jarvis] SIFRE YANLIS! jarvis_ayar.json dosyasini silip programi tekrar ac."); time.sleep(60); continue
+                if not getattr(calis, "bagli", False):
+                    calis.bagli = True; print("[Jarvis] Bulut baglantisi tamam, komut bekliyorum.")
                 for k in r.json().get("komutlar", []):
                     tur, d = k.get("tur"), k.get("deger", "")
                     print(f"[Jarvis komutu] {tur}: {d}")
@@ -139,7 +143,7 @@ def komut_dongusu(sifre):
                     elif tur == "yaz":
                         subprocess.run("clip", input=d.encode("utf-16"), shell=True)
             except Exception as e:
-                pass
+                print("[Jarvis] Baglanti hatasi:", str(e)[:120])
             time.sleep(15)
     threading.Thread(target=calis, daemon=True).start()
 
