@@ -1251,7 +1251,7 @@ async function baglam(env) {
 // Gemini + Google arama ile internet arastirmasi
 async function arastir(env, soru) {
   // Yogunlukta (429/503) bekleyip tekrar dene, sonra baska modele gec
-  const modeller = [...new Set([env.ARASTIRMA_MODEL || "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-flash-lite-latest"])];
+  const modeller = [...new Set([env.ARASTIRMA_MODEL || "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.5-flash-lite"])];
   let r, son = "";
   for (let i = 0; i < modeller.length * 2; i++) {
     const model = modeller[Math.floor(i / 2)];
