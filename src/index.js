@@ -2240,13 +2240,15 @@ async function videoIndir(env, a = {}) {
     if (m) url = m[0];
   }
   if (!/^https?:\/\//.test(url)) return "HATA: indirilecek video linki yok. Once youtube_ara ile bul ya da linki ver.";
-  if (/youtu\.?be/i.test(url) && Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) < 6 * 60e3) {
+  if (/youtu\.?be/i.test(url)) {   // YouTube bulut sunucularini engelliyor: her zaman laptop indirir
+    const acik = Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) < 6 * 60e3;
     await laptopKomut(env, { tur: "indir", deger: url + "|" + String(a.klasor || "") });
-    return "YouTube buluttan indirmeye izin vermiyor, laptopa verdim: laptop indirip Drive'a yükleyecek, bitince haber veririm.";
+    return acik ? "YouTube buluttan indirmeye izin vermiyor, laptopa verdim: laptop indirip Drive'a yukleyecek, bitince bildirim gelir."
+      : "YouTube buluttan indirmeye izin vermiyor, bu yuzden laptop indirmeli. Laptop programi su an kapali; siraya koydum, BASLAT.bat'i acinca indirip Drive'a yukleyecek.";
   }
   const klasor = ["ornek", "ham", "malzeme"].includes(a.klasor) ? a.klasor : "ornek";
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/indir.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { url, klasor } }) });
-  await kvYaz(env, "indir_bekliyor", { url, klasor, zaman: Date.now() });
+  const ib = await kvOku(env, "indir_bekleyenler", []); ib.push({ url, klasor, zaman: Date.now() }); await kvYaz(env, "indir_bekleyenler", ib.slice(-10));
   await gunlukEkle(env, "Video buluttan indiriliyor: " + url);
   return `Videoyu bulutta indiriyorum (${url}). 1-3 dakikada Drive'daki Jarvis/${klasor} klasorune gelecek, bitince haber veririm. Stil icin indirmeye gerek yok; stil_cikar YouTube linkini dogrudan izleyebilir.`;
 }
@@ -2415,19 +2417,37 @@ async function stilDurumu(env) {
 
 async function indirKontrol(env) {
   try {
-    const ib = await kvOku(env, "indir_bekliyor", null);
-    if (ib && Date.now() - ib.zaman > 60e3) {
-      const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/indir.log?ref=indir-log`)).content);
+    const l = await kvOku(env, "indir_bekleyenler", []);
+    if (!l.length || !l.some((x) => Date.now() - x.zaman > 60e3)) return;
+    const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/indir.log?ref=indir-log`)).content);
+    const kalan = [];
+    for (const ib of l) {
       if (k.includes("url=" + ib.url) && kayitYeniMi(k, ib.zaman)) {
-        await kvYaz(env, "indir_bekliyor", null);
-        if (k.includes("INDIRILEMEDI")) await laptopKomut(env, { tur: "indir", deger: ib.url + (ib.klasor ? "|" + ib.klasor : "") });
         const did = (k.match(/DRIVE_ID: (\S+)/) || [])[1], bas = (k.match(/BASLIK: (.*)/) || [])[1] || "video";
-        await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? (Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) < 6 * 60e3 ? "Bulut indiremedi, laptopa verdim; inince Drive'a yükleyip haber vereceğim." : "YouTube bulutu engelliyor. Laptop programı açılınca indirecek.") : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
-      } else if (Date.now() - ib.zaman > 20 * 60e3) await kvYaz(env, "indir_bekliyor", null);
+        if (!did && k.includes("INDIRILEMEDI")) await laptopKomut(env, { tur: "indir", deger: ib.url + "|" + (ib.klasor || "") });
+        await bildirimEkle(env, did ? "Video indirildi 📥" : "Video indirilemedi", did ? bas.slice(0, 80) + " → Drive/Jarvis/" + ib.klasor : (k.includes("INDIRILEMEDI") ? "Site bulutu engelledi; laptopa verdim, laptop programı açıkken indirecek." : "Drive'a yüklenemedi."), did ? "https://drive.google.com/file/d/" + did + "/view" : "");
+      } else if (Date.now() - ib.zaman > 20 * 60e3) {
+        await bildirimEkle(env, "İndirme sonucu belirsiz", "Aynı anda birden çok indirme vardı, sonucunu göremedim: Drive/Jarvis/" + ib.klasor + " klasörüne bak.", "");
+      } else kalan.push(ib);
     }
+    await kvYaz(env, "indir_bekleyenler", kalan);
   } catch (e) {}
 }
 
+async function laptopYetkili(env, request) {
+  const x = request.headers.get("x-secret") || "";
+  if (env.APP_SECRET && x === env.APP_SECRET) return true;
+  const t = await kvOku(env, "laptop_token", null);
+  return !!(t && x === t);
+}
+async function laptopEslestir(env, a = {}) {
+  const b = await kvOku(env, "laptop_eslestir_bekleyen", null);
+  const kod = String(a.kod || "").replace(/\D/g, "");
+  if (!b || Date.now() - b.zaman > 30 * 60e3) return "Bekleyen laptop eslestirmesi yok. Laptopta BASLAT.bat'i ac, ekrandaki kodu soyle.";
+  if (kod !== b.kod) return "Kod tutmadi. Laptop ekranindaki 6 haneli kodu tekrar soyle.";
+  await kvYaz(env, "laptop_token", b.token); await kvYaz(env, "laptop_eslestir_bekleyen", null);
+  return "Laptop eslesti! Artik sifresiz baglanir.";
+}
 // --- Laptop komut kuyrugu (laptop programi 5 sn'de bir sorar) ---
 async function laptopKomut(env, a = {}) {
   const tur = String(a.tur || "ac");
@@ -2530,7 +2550,7 @@ const ARAC_GRUPLARI = [
   [/youtube|video bul|videosu|kanalı|kanali|ara\b|bul\b|stil/i, ["youtube_ara", "stil_cikar", "telefonda_ac"]],
   [/\bara\b|arar m|arayab|telefon et|çağır|cagir/i, ["telefon_ara"]],
   [/aç\b|ac\b|açar|acar|telefonda|telefondan|uygulama|git\b|gir\b/i, ["telefonda_ac", "youtube_ara", "laptop_komut"]],
-  [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
+  [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "laptop_eslestir", "youtube_ara"]],
   [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
   [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik", "nis_analiz", "nis_raporlari"]],
   [/sabah|gece|yarın|yarin|rapor|araştır|arastir|dakika|saat/i, ["sabaha_arastir", "gece_raporu", "arastir", "derin_arastir", "arastirma_durumu"]],
@@ -2576,6 +2596,7 @@ const ARACLAR = [
   ["nis_analiz", "Bir YouTube nisini analiz eder: o konuda en cok izlenen videolari bulup izler; hook'lari, kurgu stilini ve video akisini cikarir; Eren'in kanali icin baslik, hook, akis, kurgu, aciklama ve etiketlerle 3 video plani ve kurgu stil dosyasi yazar (bulutta, 5-15 dk).", { nis: "konu/nis, ornek 'valorant taktik' ya da 'uzay bilim'", tur: "shorts veya uzun", dil: "kanalin dili (varsayilan Turkce)" }],
   ["nis_raporlari", "Daha once yapilan nis analizlerinin rapor linklerini listeler.", {}],
   ["video_indir", "Bir videoyu BULUTTA indirir ve Eren'in Drive'ina (Jarvis/ornek, ham ya da malzeme) koyar. Bilgisayar gerekmez. 'Indir' istendiginde laptop_komut yerine BUNU kullan (Eren ozellikle laptop demediyse). Link yoksa ara ile YouTube'da bulur.", { link: "video linki ya da youtube_ara sonuc numarasi", ara: "link yoksa YouTube arama metni, ornek 'Baykalem son video'", klasor: "ornek, ham ya da malzeme (varsayilan ornek)" }],
+  ["laptop_eslestir", "Laptop programini eslestirir: Eren laptop ekranindaki 6 haneli kodu soyleyince ('laptop kodu 123456') cagir.", { kod: "6 haneli kod" }],
   ["laptop_komut", "Eren'in laptopunda komut calistirir (laptop programi acikken): tur=ac (link/site acar), tur=uygulama (discord, chrome, spotify, valorant, steam, explorer, premiere, capcut, obs...), tur=indir (videoyu indirip Drive'a yukler; deger=link), tur=yaz (panoya metin kopyalar).", { tur: "ac, uygulama, indir veya yaz", deger: "link, uygulama adi ya da metin" }],
   ["harcama", "Harcama kaydeder (TL) ve bu ayin harcama ozetini verir. Miktar verilmezse sadece ozet.", { miktar: "TL (opsiyonel)", kategori: "yemek, ulasim, fatura, eglence vb.", aciklama: "opsiyonel" }],
   ["haftalik_hedef", "Haftalik hedef koyar ya da ilerlemesini soyler (bu hafta biten kurgu/teslim edilen is).", { sayi: "hedef sayi (opsiyonel)", ne: "video, is vb." }],
@@ -2675,6 +2696,7 @@ async function aracCalistir(env, ad, a) {
     if (ad === "telefon_ara") { const k = s(a.kim).replace(/['’]?(y?[ıiuü]|y?[ae])?\s*ara(r m[ıi]s[ıi]n)?$/i, "").trim() || s(a.kim); return { metin: k + " araniyor (telefon kendisi arayacak; bulunamazsa ekranda yazar).", ekran: { ara: k } }; }
     if (ad === "video_indir") return await videoIndir(env, a);
     if (ad === "laptop_komut") return await laptopKomut(env, a);
+    if (ad === "laptop_eslestir") return await laptopEslestir(env, a);
     if (ad === "telefonda_ac") {
       const UYG = { youtube: "https://www.youtube.com", discord: "https://discord.com/app", drive: "https://drive.google.com", instagram: "https://www.instagram.com", tiktok: "https://www.tiktok.com",
         spotify: "https://open.spotify.com", whatsapp: "https://wa.me", gmail: "https://mail.google.com", takvim: "https://calendar.google.com", twitch: "https://www.twitch.tv", reddit: "https://www.reddit.com", harita: "https://maps.google.com" };
@@ -2906,6 +2928,8 @@ async function ekranKomutu(env, metin) {
   const kisaM = metin.toLocaleLowerCase("tr").replace(/[.!?]/g, "").trim();
   const cm = metin.match(/^\s*(?:jarvis,?\s*)?claude(?:\s*code)?\s*(?:ile|la|'?la|'?yla|kullanarak|:)\s*(.{5,})$/i);
   if (cm) { const r = await claudeKod(env, cm[1].trim()); return { duydum: metin, cevap: r, beyin: "sistem" }; }
+  const lk = metin.match(/laptop\S*\s*(?:kodu?|kod)\S*\s*:?\s*([\d\s]{6,11})/i);
+  if (lk) { const r = await laptopEslestir(env, { kod: lk[1] }); return { duydum: metin, cevap: r, beyin: "sistem" }; }
   if (kisaM && kisaM.length < 60) {
     const hm = kisaM.match(/^(?:jarvis,? )?(?:harita(?:y[ıi])?|haritalar(?:ı|i)?)(?: a[çc](?:ar m[ıi]s[ıi]n)?)?(?:,? (.+?))?(?: haritas[ıi])?(?: a[çc])?$/) || kisaM.match(/^(?:jarvis,? )?(.+?) haritas[ıi](?:n[ıi])? a[çc]$/);
     if (hm) { const r = await aracCalistir(env, "harita", { yer: hm[1] && !/^(a[çc]|g[öo]ster)$/.test(hm[1]) ? hm[1] : "" }); return { duydum: metin, cevap: r.metin || String(r), beyin: "sistem", ekran: r.ekran }; }
@@ -3158,8 +3182,15 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
         return Response.json(typeof r === "string" ? { metin: r } : r);
       } catch (e) { return Response.json({ metin: "HATA: " + e.message }); }
     }
+    if (request.method === "POST" && url.pathname === "/laptop-eslestir") {
+      const j = await request.json().catch(() => ({}));
+      const t = String(j.token || ""); if (t.length < 24) return Response.json({ hata: "token" });
+      const kod = String(100000 + (parseInt(t.slice(0, 8), 16) % 900000));
+      await kvYaz(env, "laptop_eslestir_bekleyen", { kod, token: t, zaman: Date.now() });
+      return Response.json({ kod });
+    }
     if (url.pathname === "/drive-yukle") {   // laptop: Drive'a yukleme icin gecici token / bitti bildirimi
-      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (!(await laptopYetkili(env, request))) return new Response("Yetkisiz", { status: 401 });
       if (request.method === "POST") {
         const j = await request.json().catch(() => ({}));
         await bildirimEkle(env, j.id ? "Video indirildi 📥" : "Laptop indiremedi", String(j.ad || j.hata || "video").slice(0, 100) + (j.id ? " → Drive" : ""), j.id ? "https://drive.google.com/file/d/" + j.id + "/view" : "");
@@ -3172,7 +3203,7 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
       return Response.json({ token: b.token, klasor: k });
     }
     if (request.method === "GET" && url.pathname === "/laptop-komut") {
-      if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
+      if (!(await laptopYetkili(env, request))) return new Response("Yetkisiz", { status: 401 });
       if (Date.now() - (await kvOku(env, "laptop_son_gorulme", 0)) > 5 * 60e3) await kvYaz(env, "laptop_son_gorulme", Date.now()); // KV yazma limiti icin seyrek
       const l = await kvOku(env, "laptop_komutlar", []);
       if (l.length) await kvYaz(env, "laptop_komutlar", []);

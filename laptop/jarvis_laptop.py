@@ -16,15 +16,26 @@ TETIK = re.compile(r"^(hey |hay |ey )?(jar ?vis|jervis|jarvas|jarvi|travis)$")
 HIZ = 16000
 
 def ayar():
+    """Sifre yok: ilk acilista 6 haneli kod gosterir, Eren Jarvis'e 'laptop kodu 123456' der."""
+    a = {}
     if os.path.exists(AYAR):
-        a = json.load(open(AYAR, encoding="utf-8-sig"))
-        a["sifre"] = a["sifre"].strip().encode("utf-8")   # Turkce harfli sifre icin UTF-8 baslik
-        return a
-    try: sys.stdin.reconfigure(encoding="utf-8")
-    except Exception: pass
-    a = {"sifre": input("Jarvis sifresi: ").strip()}
-    json.dump(a, open(AYAR, "w", encoding="utf-8"), ensure_ascii=False)
-    a["sifre"] = a["sifre"].encode("utf-8")
+        try: a = json.load(open(AYAR, encoding="utf-8-sig"))
+        except Exception: a = {}
+    if not a.get("token"):
+        a = {"token": os.urandom(16).hex()}
+        json.dump(a, open(AYAR, "w", encoding="utf-8"))
+    def tamam():
+        return requests.get(URL + "/laptop-komut", headers={"x-secret": a["token"]}, timeout=20).status_code != 401
+    while not tamam():
+        kod = requests.post(URL + "/laptop-eslestir", json={"token": a["token"]}, timeout=20).json().get("kod")
+        print("\n==============================")
+        print("  Telefondan Jarvis'e soyle:  'laptop kodu " + str(kod) + "'")
+        print("==============================\n")
+        for _ in range(40):
+            time.sleep(10)
+            if tamam(): break
+    print("[Jarvis] Eslesti!")
+    a["sifre"] = a["token"]
     return a
 
 def model_indir():
@@ -132,7 +143,7 @@ def komut_dongusu(sifre):
             try:
                 r = requests.get(URL + "/laptop-komut", headers={"x-secret": sifre}, timeout=20)
                 if r.status_code == 401:
-                    print("[Jarvis] SIFRE YANLIS! jarvis_ayar.json dosyasini silip programi tekrar ac."); time.sleep(60); continue
+                    print("[Jarvis] Eslesme bozuldu: jarvis_ayar dosyasini silip programi tekrar ac."); time.sleep(60); continue
                 if not getattr(calis, "bagli", False):
                     calis.bagli = True; print("[Jarvis] Bulut baglantisi tamam, komut bekliyorum.")
                 for k in r.json().get("komutlar", []):
