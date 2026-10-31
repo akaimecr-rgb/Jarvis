@@ -2,10 +2,15 @@
 
 ## MUSTERILER (kurgu isteklerinde kullan)
 - GKey: Eren'in duzenli musterisi, oncelikli is. Valorant lineup Shorts. Kurgula aracinda musteri = "gkey", format = "shorts".
-  Stil dosyasi henuz yok: Eren 3 ornek GKey videosu verince "stil_cikar" ile ad = "gkey" olarak cikar.
+  Stil dosyasi HAZIR (stiller/gkey.md). Malzemeler Drive'da Gkey_malzemeler. Kurguyu artik Eren Claude Code'da yaptiriyor.
 (Bu dosyayi Jarvis her konusmada okur. Eren "neler yapacaktik" diye sorarsa buradan anlat.)
 
-## Siradaki adimlar
+## Guncel durum (31 Ekim)
+- Uzun arastirma: "30 dakika arastir ..." -> derin_arastir (GitHub'da gercekten o kadar surer, bitince bildirim + rapor linki).
+- YouTube indirme sadece laptoptan (YouTube bulutu engelliyor). Laptop programi kodla eslesir: "laptop kodu 123456".
+- Beyin su an ucretsiz (Gemini/Groq). Claude API eklenince ana beyin Claude olacak.
+
+## Eski siradaki adimlar
 1. GitHub'da remotion-sablonlar deposuna GEMINI_API_KEY secret'ini ekle (Settings > Secrets and variables > Actions > New repository secret).
 2. Cloudflare'de jarviss Worker'ina GROQ_API_KEY secret'ini ekle (anahtar: console.groq.com > API Keys). Konusmayi cok hizlandirir.
 3. Test: "stil çıkar shorts" + 3 ornek Shorts linki. 10 dakika bekle.
