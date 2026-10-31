@@ -446,7 +446,10 @@ async function digerDosya(env, repo, yol) {
 }
 
 async function ilanlar(env) {
-  const liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json"));
+  let liste = [];
+  try { liste = JSON.parse(await digerDosya(env, SABLON_REPO, "ilanlar/son.json")); } catch (e) {}
+  const xl = (await kvOku(env, "x_ilanlar", [])).map((d) => ({ ...d, ozet: "[" + (d.kaynak || "X") + "] " + (d.ozet || ""), butce: d.butce || "belirtilmemis" }));
+  liste = [...xl.slice(0, 3), ...liste].sort((a, b) => (+b.puan || 0) - (+a.puan || 0));
   if (!liste.length) return "Henüz uygun ilan bulamadım. İlan avı 2 saatte bir çalışıyor; 'ilan ara' dersen hemen ararım.";
   await kvYaz(env, "son_ilanlar", liste.slice(0, 10));
   return {
@@ -474,7 +477,7 @@ async function ilanDetay(env, metin) {
 async function basvuruUret(env, d, kok) {
   const port = await kvOku(env, "portfolyo", []);
   const portLink = port.length && kok ? kok + "/portfolyo" : "";
-  const sistem = "Eren icin Reddit ilanina basvuru mesaji yaziyorsun. Eren video editoru: Shorts/TikTok/Reels, Valorant ve oyun videolari " +
+  const sistem = "Eren icin bir is ilanina (Reddit, X ya da is sitesi) basvuru mesaji yaziyorsun. Eren video editoru: Shorts/TikTok/Reels, Valorant ve oyun videolari " +
     "(duzenli bir Valorant lineup Shorts musterisi var), psikoloji/egitim Shorts'u, uzun YouTube videolari; Remotion ile hizli teslim. " +
     "Mesaj kisa (en fazla 120 kelime), samimi, profesyonel ve ilana ozel olsun; ilandaki gereksinimlere tek tek degin; abartili iddia ve uydurma referans yazma. " +
     (portLink ? "Portfolyo linkini ekle: " + portLink + " . " : "Portfolyo linki yok; ornek calisma gondermeyi teklif et. ") +
@@ -531,12 +534,43 @@ h1{margin:0;font-size:34px;color:#67e8f9}header p{color:#9fb7c9;max-width:620px;
 <div class="izgara">${kartlar || '<p style="text-align:center;color:#9fb7c9">Portfolio coming soon.</p>'}</div><footer>${e(iletisim)}</footer></body></html>`;
 }
 
+// X (Twitter) ilanlari: X'in kendisi taranmaz; web arama motoru (Groq compound / Gemini Google arama) uzerinden son paylasimlar bulunur
+async function xIlanAra(env) {
+  const soru = "Find RECENT (last 3 days) public posts on X/Twitter (x.com or twitter.com) where someone is HIRING a video editor: YouTube long-form, gaming/Twitch stream highlights, Valorant, YouTube Shorts/TikTok, talking-head. " +
+    "Also include recent hiring posts from ytjobs.co if found. Return ONLY a JSON array (max 10), each: " +
+    '{"link":"direct post url","kim":"poster handle","ozet":"Turkce 1 cumle: ne istiyor","butce":"ucret ya da belirtilmemis","format":"uzun|shorts|diger","puan":1-10 (Eren icin uygunluk: oyun/uzun video/shorts editoru, Ingilizce bilmiyor ama AI ile yazisiyor)}. ' +
+    "Only include posts you actually found with a real URL. If none, return [].";
+  let metin = "";
+  if (env.GROQ_API_KEY) {
+    for (const gm of ["groq/compound", "groq/compound-mini"]) {
+      try {
+        const g = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + env.GROQ_API_KEY },
+          body: JSON.stringify({ model: gm, messages: [{ role: "user", content: soru }] }) });
+        if (g.ok) { metin = (await g.json()).choices?.[0]?.message?.content || ""; if (metin.includes("[")) break; }
+      } catch (e) {}
+    }
+  }
+  if (!metin.includes("http")) { try { metin = (await arastir(env, soru)).metin; } catch (e) {} }
+  let l = [];
+  try { l = JSON.parse((metin.match(/\[[\s\S]*\]/) || ["[]"])[0]); } catch (e) {}
+  l = l.filter((d) => d && /^https?:\/\/(x\.com|twitter\.com|(www\.)?ytjobs\.co)\//i.test(String(d.link || "")) && (+d.puan || 0) >= 5);
+  const eski = await kvOku(env, "x_ilanlar", []);
+  const bilinen = new Set(eski.map((d) => d.link));
+  const yeni = l.filter((d) => !bilinen.has(d.link)).map((d) => ({ ...d, kaynak: /ytjobs/i.test(d.link) ? "ytjobs" : "X", zaman: Date.now() }));
+  await kvYaz(env, "x_ilanlar", [...yeni, ...eski].filter((d) => Date.now() - d.zaman < 10 * 864e5).slice(0, 30));
+  await kvYaz(env, "x_ilan_son", Date.now());
+  if (yeni.length) await bildirimEkle(env, "X'te " + yeni.length + " yeni editör ilanı", yeni[0].ozet || "", yeni[0].link);
+  return yeni.length;
+}
+
 async function ilanAra(env) {
   await gh(env, `/repos/${SABLON_REPO}/actions/workflows/ilan-avi.yml/dispatches`, {
     method: "POST", body: JSON.stringify({ ref: "main" }),
   });
   await gunlukEkle(env, "İlan araması başlatıldı");
-  return "İlan aramayı başlattım. 3-5 dakika sonra 'ilanlar' de.";
+  let xs = "";
+  try { const n = await xIlanAra(env); xs = n ? ` X'te de ${n} yeni ilan buldum.` : " X'te yeni ilan bulamadım."; } catch (e) { xs = " X araması olmadı."; }
+  return "Reddit ve iş sitelerinde aramayı başlattım (3-5 dakika sürer, sonra 'ilanlar' de)." + xs;
 }
 
 async function videoImza(env, run) {
@@ -1773,6 +1807,8 @@ async function haftalikRapor(env) {
 
 async function saatlikIs(env) {
   const z = trSimdi();
+  // 0a) X ilanlari: 6 saatte bir
+  try { if (Date.now() - (await kvOku(env, "x_ilan_son", 0)) > 6 * 3600e3) await xIlanAra(env); } catch (e) {}
   // 0) Gece arastirmalari: 01-08 arasi her saat kalan konulari yap
   try { const sa = +String(z.saat || "").split(":")[0]; if (sa >= 1 && sa <= 8) await geceArastirmalariYap(env); } catch (e) {}
   // 1) Yeni ilanlar

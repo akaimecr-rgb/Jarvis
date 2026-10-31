@@ -11,7 +11,7 @@
 - Beyin su an ucretsiz (Gemini/Groq). Claude API eklenince ana beyin Claude olacak.
 
 ## Siradaki is (Eren istedi, 31 Ekim)
-- Ilan avi sadece Reddit'e bakiyor; X (Twitter) ve diger ilan siteleri de eklenecek. HENUZ YAPILMADI. Eren sorarsa "henuz eklenmedi" de.
+- X (Twitter) ve ytjobs ilanlari EKLENDI: web aramasiyla 6 saatte bir (ve 'ilan ara' deyince) bakilir; 'ilanlar' listesinde [X] diye gorunur. X'in kendisi taranmaz, arama motorunun buldugu paylasimlar gelir.
 - Eren video linklerini verince: Ingilizce portfolyo sayfasi + uygun ilanlara basvuru mesajlari (Ingilizce + Turkce).
 
 ## Eski siradaki adimlar
