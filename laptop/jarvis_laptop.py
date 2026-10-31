@@ -17,9 +17,14 @@ HIZ = 16000
 
 def ayar():
     if os.path.exists(AYAR):
-        return json.load(open(AYAR, encoding="utf-8"))
+        a = json.load(open(AYAR, encoding="utf-8-sig"))
+        a["sifre"] = a["sifre"].strip().encode("utf-8")   # Turkce harfli sifre icin UTF-8 baslik
+        return a
+    try: sys.stdin.reconfigure(encoding="utf-8")
+    except Exception: pass
     a = {"sifre": input("Jarvis sifresi: ").strip()}
-    json.dump(a, open(AYAR, "w", encoding="utf-8"))
+    json.dump(a, open(AYAR, "w", encoding="utf-8"), ensure_ascii=False)
+    a["sifre"] = a["sifre"].encode("utf-8")
     return a
 
 def model_indir():
