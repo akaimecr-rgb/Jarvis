@@ -20,7 +20,8 @@ const SISTEM_TEMEL =
   "Musteriden gelen Ingilizce mesajlari once Turkce ozetle, sonra istenirse cevap taslagini Ingilizce + Turkce ver.\n" +
   "ORNEKLER:\nEren: naber\nJarvis: Iyiyim Eren, sistemler calisiyor. Bugun neye bakiyoruz?\n" +
   "Eren: cok yoruldum bugun\nJarvis: Uzun bir vardiyaydi galiba. Istersen bugun sadece bekleyen isleri soyleyeyim, gerisini yarina birakiriz.\n" +
-  "Eren: bu videoyu kurgula\nJarvis: Hemen baslatiyorum, on dakika icinde hazir olur.\n" +
+  "Eren: 30 dakika arastir\nJarvis: (derin_arastir aracini sure=30 ile cagirir) Basladim; yarim saat boyunca kaynaklari okuyup bitince raporu gonderecegim.\n" +
+  "Eren: su videoyu Instagram'a yukle\nJarvis: Bunu yapacak aracim yok, Instagram'a sen yuklemelisin. Istersen aciklama ve etiketleri hazirlayayim.\n" +
   "Eren sana kalici olarak hatirlaman gereken bir sey soylerse, " +
   "cevabinin en sonuna [HATIRLA: kisa not] ekle. Bu etiketi baska durumda kullanma. " +
   "COK ONEMLI: Asla yapmadigin bir isi yaptim deme ve bilmedigin bir sonucu uydurma. Drive islemlerini sadece komutlarla yaparsin, " +
@@ -1885,6 +1886,7 @@ async function saatlikIs(env) {
   await indirKontrol(env);
   await nisKontrol(env);
   await stilKontrol(env);
+  await arastirmaKontrol(env).catch(() => {});
   // 3h) Claude Code isi bitti mi?
   try {
     const bk = await kvOku(env, "claude_kod_bekliyor", null);
@@ -1923,13 +1925,14 @@ async function sabahOzeti(env) {
   parcalar.push(await nelerYaptin(env));
   try { parcalar.push((await gelirOzeti(env)).metin); } catch (e) {}
   try { const gr = await kvOku(env, "gece_raporlari", []); if (gr.length && gr[0].tarih === trSimdi().tarih) parcalar.push("GECE ISTEDIGI ARASTIRMALAR (bunlari detayli ama sesli okunacak sekilde anlat, 'ekrana da koydum' de): " + gr.map((x) => x.konu + ": " + x.metin.slice(0, 1500)).join(" || ")); } catch (e) {}
+  try { const da = (await kvOku(env, "derin_arastirmalar", [])).filter((x) => x.sabah && x.durum === "bitti" && Date.now() - x.zaman < 16 * 3600e3); if (da.length) parcalar.push("GECE ISTEDIGI ARASTIRMALAR BITTI (ozetini sesli anlat, rapor linki bildirimlerde): " + da.map((x) => x.konu + ": " + (x.ozet || "")).join(" || ")); } catch (e) {}
   try { const g = await kvOku(env, "gece_ogrenilen", null); if (g && g.tarih === trSimdi().tarih) parcalar.push("Gece kendi kendine ogrendigin (Eren'e 'gece sunu ogrendim' diye kisaca anlat): " + g.metin); } catch (e) {}
   try { const n = (await kvOku(env, "arastirma_notlari", [])).slice(-1)[0]; if (n) parcalar.push("Son arastirma (" + n.konu + "): " + n.ozet.slice(0, 500)); } catch (e) {}
   const bk = await kvOku(env, "bekleyen_kod", null);
   if (bk) parcalar.push("Onay bekleyen kod onerin: " + bk.ozet);
   if (env.DRIVE_SCRIPT_URL) { try { parcalar.push(await mailKontrol(env, {})); } catch (e) {} }
   const sistem = SISTEM_TEMEL + "\n\nEren az once uyandi. Asagidaki bilgilerle ona sicak, dogal ve kisa bir sabah ozeti ver (en fazla 6-7 cumle): " +
-    (saat 05-12 arasiysa "gunaydin", degilse saate uygun selam ver: gece ise "gunaydin" DEME) ve bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
+    "saat 05-12 arasiysa 'gunaydin', degilse saate uygun selam ver (gece ise 'gunaydin' DEME); bugunun planini ve havayi soyle, gece kendi basina yaptiklarini ve onemli haberleri (yeni ilan, mail, kurgu, kod onerisi) anlat, " +
     "gune dair tek bir faydali oneride bulun. En sonda 'Gunun Ingilizcesi' de: musterilerle yazisirken ise yarayan tek bir kisa Ingilizce kalip, okunusu ve Turkce anlami (her gun farkli olsun). Madde isareti kullanma.";
   const mesaj = [{ role: "user", content: parcalar.join("\n") }];
   let cevap;
@@ -2250,13 +2253,60 @@ async function videoIndir(env, a = {}) {
 
 // --- Nis analizi (kanal acma): bulutta calisir, rapor sayfasi /rapor/<slug> ---
 // --- Sabaha arastirma: Eren'in istedigi konulari gece arastir, sabah ozetinde detayli rapor ver ---
+// --- Derin arastirma: GitHub'da gercekten X dakika arastirir, rapor linki verir ---
+async function derinArastir(env, a = {}) {
+  const konu = String(a.konu || "").trim().slice(0, 400);
+  if (!konu) return "HATA: neyi arastirayim?";
+  const sure = Math.max(3, Math.min(180, parseInt(a.sure_dk || a.sure || 30) || 30));
+  await gh(env, `/repos/${SABLON_REPO}/actions/workflows/arastir.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { konu, sure: String(sure) } }) });
+  const l = await kvOku(env, "derin_arastirmalar", []);
+  l.push({ konu, sure, zaman: Date.now(), durum: "suruyor", sabah: !!a.sabah });
+  await kvYaz(env, "derin_arastirmalar", l.slice(-15));
+  await gunlukEkle(env, `Derin araştırma başladı (${sure} dk): ` + konu.slice(0, 60));
+  return `Basladi: "${konu}" konusunu ${sure} dakika boyunca bulutta arastiriyorum (onlarca kaynak). Bitince telefona rapor linkiyle bildirim gelecek; arada 'arastirma durumu' diye sorabilirsin.`;
+}
+async function arastirmaKontrol(env) {
+  const l = await kvOku(env, "derin_arastirmalar", []);
+  const bekleyen = l.filter((x) => x.durum === "suruyor" && Date.now() - x.zaman > x.sure * 60e3);
+  if (!bekleyen.length) return;
+  let dosyalar = [];
+  try { dosyalar = (await gh(env, `/repos/${SABLON_REPO}/contents/arastirmalar`)).map((f) => f.name.replace(/\.md$/, "")); } catch (e) {}
+  const kullanilan = new Set(l.map((x) => x.slug).filter(Boolean));
+  let degisti = false;
+  for (const x of bekleyen) {
+    const kok = "ar-" + x.konu.toLocaleLowerCase("tr").replace(/ı/g, "i").normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 20);
+    const slug = dosyalar.find((d) => !kullanilan.has(d) && d.startsWith(kok.slice(0, 12)));
+    if (slug) {
+      kullanilan.add(slug); x.slug = slug; x.durum = "bitti"; degisti = true;
+      x.link = (env.JARVIS_URL || "https://jarviss.akaimecr.workers.dev") + "/rapor/" + slug + "?t=" + (await videoImza(env, "rapor-" + slug));
+      try { const md = await digerDosya(env, SABLON_REPO, "arastirmalar/" + slug + ".md"); x.ozet = (md.split(/## Kisa ozet|## Kısa özet/i)[1] || md).replace(/[#*_>\[\]]/g, "").trim().slice(0, 1500); } catch (e) {}
+      await bildirimEkle(env, "Araştırma bitti 🔎 " + x.konu.slice(0, 50), (x.ozet || "Rapor hazır.").slice(0, 160), x.link);
+      await gunlukEkle(env, "Derin araştırma bitti: " + x.konu.slice(0, 60));
+    } else if (Date.now() - x.zaman > (x.sure + 45) * 60e3) {
+      x.durum = "olmadi"; degisti = true;
+      let neden = "";
+      try { const k = b64Coz((await gh(env, `/repos/${SABLON_REPO}/contents/arastirma.log?ref=arastirma-log`)).content); neden = (k.match(/(HTTP Error \d+|HATA_KODU: \S+|Error.*)/) || [""])[0].slice(0, 100); } catch (e) {}
+      await bildirimEkle(env, "Araştırma olmadı", x.konu.slice(0, 60) + (neden ? " — " + neden : ""), "");
+    }
+  }
+  if (degisti) await kvYaz(env, "derin_arastirmalar", l);
+}
+async function arastirmaDurumu(env) {
+  await arastirmaKontrol(env).catch(() => {});
+  const l = (await kvOku(env, "derin_arastirmalar", [])).slice(-5).reverse();
+  if (!l.length) return "Henuz derin arastirma yok.";
+  return { metin: l.map((x) => x.durum === "suruyor"
+      ? `"${x.konu.slice(0, 60)}": suruyor, ${Math.round((Date.now() - x.zaman) / 60000)}/${x.sure} dk`
+      : x.durum === "bitti" ? `"${x.konu.slice(0, 60)}": BITTI. Ozet: ${(x.ozet || "").slice(0, 600)}` : `"${x.konu.slice(0, 60)}": olmadi`).join("\n"),
+    linkler: l.filter((x) => x.link).map((x, i) => ({ ad: "RAPOR " + (i + 1), url: x.link })) };
+}
+
 async function sabahaArastir(env, a = {}) {
   const konu = String(a.konu || "").trim();
   if (!konu) return "HATA: neyi arastirayim?";
-  const l = await kvOku(env, "gece_arastirma", []);
-  l.push({ konu: konu.slice(0, 400), zaman: Date.now() });
-  await kvYaz(env, "gece_arastirma", l.slice(-5));
-  return `Tamam, "${konu}" konusunu gece araştırıp sabah özetinde detaylı rapor vereceğim (sırada ${l.length} konu var). Raporu sabah 'uyandım' deyince ya da 'gece raporu' deyince okursun.`;
+  const r = await derinArastir(env, { konu, sure_dk: a.sure_dk || 60, sabah: true });
+  if (r.startsWith("HATA")) return r;
+  return `Tamam, "${konu}" konusunu simdi ${a.sure_dk || 60} dakika boyunca bulutta arastirmaya basladim. Sabah 'uyandim' deyince ozetini anlatacagim, rapor linki de bildirim olarak gelecek.`;
 }
 async function geceArastirmalariYap(env) {
   const l = await kvOku(env, "gece_arastirma", []);
@@ -2483,7 +2533,7 @@ const ARAC_GRUPLARI = [
   [/laptop|bilgisayar|pc\b|masaüstü|masaustu/i, ["laptop_komut", "youtube_ara"]],
   [/indir|kaydet|drive'a|drivea/i, ["video_indir", "youtube_ara"]],
   [/abone|izlenme|kanal|istatistik|youtube/i, ["kanal_istatistik", "nis_analiz", "nis_raporlari"]],
-  [/sabah|gece|yarın|yarin|rapor|araştır|arastir/i, ["sabaha_arastir", "gece_raporu", "arastir"]],
+  [/sabah|gece|yarın|yarin|rapor|araştır|arastir|dakika|saat/i, ["sabaha_arastir", "gece_raporu", "arastir", "derin_arastir", "arastirma_durumu"]],
   [/niş|nis\b|nişi|nisi|hook|trend|analiz|kanal aç|kanal ac|fikir|başlık|baslik/i, ["nis_analiz", "nis_raporlari", "fikir_uret"]],
   [/mola|su iç|su ic|göz|goz|esne/i, ["mola"]],
   [/rapor/i, ["musteri_raporu", "haftalik_rapor"]],
@@ -2520,6 +2570,8 @@ const ARACLAR = [
   ["kelime_ogret", "Eren'in kisisel sozlugune kelime ekler/siler/listeler (isimler, musteriler, oyun terimleri, yer adlari). Sesli anlamada bu kelimeler dogru yazilir. Eren 'su kelimeyi ogren' derse kullan.", { kelime: "dogru yazilis (opsiyonel)", aciklama: "ne oldugu (opsiyonel)", duyulan: "yanlis duyulan hali (opsiyonel)", sil: "silinecek kelime (opsiyonel)" }],
   ["duzelt", "Eren 'hayir, sunu dedim', 'yanlis anladin, ... dedim' derse cagir: yanlis anlamayi kaydeder (ogrenme verisi), sonra dogru istegi yap.", { dogru: "Eren'in asil dedigi", duyulan: "yanlis anlasilan hali (opsiyonel)" }],
   ["sabaha_arastir", "Eren'in istedigi bir konuyu GECE arastirmak uzere siraya koyar; sabah ozetinde detayli rapor verilir. Eren 'yarin sabah rapor ver', 'gece arastir' derse BUNU cagir (cagirmadan soz verme).", { konu: "arastirilacak konu, ayrintili" }],
+  ["derin_arastir", "Bir konuyu GERCEKTEN belirtilen sure boyunca (dakika) bulutta derinlemesine arastirir: onlarca alt soru, blog/makale/haber/video kaynaklari; bitince rapor linki bildirimi gelir. Eren '30 dakika arastir', '1 saat arastir', 'detayli arastir' derse BUNU cagir (sure_dk: 1 saat=60).", { konu: "konu, ayrintili", sure_dk: "dakika (varsayilan 30, en fazla 180)" }],
+  ["arastirma_durumu", "Derin arastirmalarin durumunu (suruyor kac dk / bitti + ozet ve rapor linki) soyler. 'Arastirma ne oldu/bitti mi' sorulursa cagir.", {}],
   ["gece_raporu", "Gece yapilan arastirmalarin raporlarini gosterir.", {}],
   ["nis_analiz", "Bir YouTube nisini analiz eder: o konuda en cok izlenen videolari bulup izler; hook'lari, kurgu stilini ve video akisini cikarir; Eren'in kanali icin baslik, hook, akis, kurgu, aciklama ve etiketlerle 3 video plani ve kurgu stil dosyasi yazar (bulutta, 5-15 dk).", { nis: "konu/nis, ornek 'valorant taktik' ya da 'uzay bilim'", tur: "shorts veya uzun", dil: "kanalin dili (varsayilan Turkce)" }],
   ["nis_raporlari", "Daha once yapilan nis analizlerinin rapor linklerini listeler.", {}],
@@ -2614,6 +2666,9 @@ async function aracCalistir(env, ad, a) {
     if (ad === "kelime_ogret") return await kelimeOgret(env, a);
     if (ad === "duzelt") return await duzeltme(env, a);
     if (ad === "sabaha_arastir") return await sabahaArastir(env, a);
+    if (ad === "derin_arastir") return await derinArastir(env, a);
+    if (ad === "arastirma_durumu") return await arastirmaDurumu(env);
+    if (ad === "gece_raporu" && (await kvOku(env, "derin_arastirmalar", [])).length) return await arastirmaDurumu(env);
     if (ad === "gece_raporu") { const gr = await kvOku(env, "gece_raporlari", []); return gr.length ? { metin: gr.map((x) => `[${x.tarih}] ${x.konu}: ${x.metin}`).join("\n\n"), linkler: gr.flatMap((x) => x.linkler || []).slice(0, 6) } : "Henuz gece raporu yok. Bekleyen konular: " + ((await kvOku(env, "gece_arastirma", [])).map((x) => x.konu).join("; ") || "yok"); }
     if (ad === "nis_analiz") return await nisAnaliz(env, a);
     if (ad === "nis_raporlari") { const l = await kvOku(env, "nis_raporlari", []); return l.length ? { metin: "Nis raporlari: " + l.map((x) => `${x.nis} (${x.tarih}, stil adi: ${x.slug})`).join("; "), linkler: l.slice(-6).map((x) => ({ ad: x.nis.slice(0, 20), url: x.link })) } : "Henuz nis analizi yapilmadi."; }
@@ -2714,6 +2769,12 @@ async function aracCalistir(env, ad, a) {
   }
 }
 
+// Arac cagirmadan "yapiyorum/basladim/devam ediyor" diyen cevaplari yakala (gecistirme/uydurma)
+const SAHTE_ILERLEME = /(ba[sş]lat[ıi]yorum|ba[sş]lad[ıi]m|ba[sş]latt[ıi]m|ara[sş]t[ıi]r[ıi]yorum|ara[sş]t[ıi]rmaya (devam|ba[sş]l)|devam ediyor|hala s[üu]r[üu]yor|h[âa]l[âa] devam|indiriyorum|y[üu]kl[üu]yorum|kurgul[ıu]yorum|haz[ıi]rl[ıi]yorum|tar[ıi]yorum|kontrol ediyorum|bakt[ıi]m|g[öo]nderdim|bitince haber|birazdan haz[ıi]r|dakika i[çc]inde)/i;
+function sahteMi(cevap, aracSayisi) { return aracSayisi === 0 && SAHTE_ILERLEME.test(String(cevap || "")); }
+const DURUST_UYARI = "UYARI: Az onceki cevabinda bir isi yapiyormus/baslatmis gibi konustun ama HICBIR ARAC CAGIRMADIN, yani aslinda hicbir sey yapilmadi. " +
+  "Simdi ya isi yapacak araci GERCEKTEN cagir, ya da uygun arac yoksa Eren'e acikca 'bunu yapamiyorum, cunku ...; yapabilmem icin ... gerekiyor' de. Gecistirme, sure uydurma.";
+
 async function ajanCalistir(env, sistem, son) {
   // Gemini (Turkcesi daha iyi, ucretsiz gunluk kota) -> Groq (hizli) -> Cerebras
   const saglayicilar = [];
@@ -2746,9 +2807,9 @@ async function ajanDongu(env, sistem, son, sg) {
     "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
     "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = [{ role: "system", content: ajanSistem }, ...son];
-  const secili = aracSec(son.filter((x) => x.role === "user").slice(-2).map((x) => String(x.content)).join(" "));
-  let link = null, linkler = null, ekran = null;
-  for (let adim = 0; adim < 5; adim++) {
+  let secili = aracSec(son.filter((x) => x.role === "user").slice(-2).map((x) => String(x.content)).join(" "));
+  let link = null, linkler = null, ekran = null, aracSayisi = 0, uyarildi = false;
+  for (let adim = 0; adim < 6; adim++) {
     const r = await fetch(sg.url, {
       method: "POST",
       headers: { Authorization: "Bearer " + sg.anahtar, "content-type": "application/json" },
@@ -2757,7 +2818,17 @@ async function ajanDongu(env, sistem, son, sg) {
     });
     if (!r.ok) throw new Error("Ajan " + r.status + " " + (await r.text().catch(() => "")).slice(0, 120));
     const m = (await r.json()).choices[0].message;
-    if (!m.tool_calls || !m.tool_calls.length) return { cevap: m.content || "", link, linkler, ekran };
+    if (!m.tool_calls || !m.tool_calls.length) {
+      if (!uyarildi && sahteMi(m.content, aracSayisi)) {   // tum araclarla bir kez daha dene
+        uyarildi = true;
+        const ek = new Set(["arastir", "derin_arastir", "sabaha_arastir", "kurgula", "kurgu_durumu", "video_indir", "laptop_komut", "stil_cikar", "stil_durumu", "nis_analiz", "musteri_bul", "ilan_ara", "ilanlar", "claude_kod", "claude_kod_durumu", "hatirlat", "not_al", "drive", "youtube_ara", "telefonda_ac", "sistem_durumu", "neler_yaptin"]);
+        secili = ARACLAR.filter((t) => ek.has(t.function.name) || secili.includes(t));
+        mesajlar.push({ role: "assistant", content: m.content || "" }, { role: "user", content: DURUST_UYARI });
+        continue;
+      }
+      return { cevap: m.content || "", link, linkler, ekran };
+    }
+    aracSayisi += m.tool_calls.length;
     mesajlar.push({ role: "assistant", content: m.content || "", tool_calls: m.tool_calls });
     for (const c of m.tool_calls) {
       let a = {};
@@ -2785,8 +2856,8 @@ async function ajanClaude(env, sistem, son) {
     "Arac sonuclarini kopyalama; kendi cumlelerinle, o anki konusmaya uygun ve dogal anlat. Hep ayni kaliplari tekrarlama, robot gibi konusma. " +
     "Konusmanin akisini hatirla, onceki mesajlara atif yap, gerektiginde soru sor ve fikrini soyle. Eren'e yardimci olacak bir sey fark edersen kendiliginden oner.";
   const mesajlar = son.map((m) => ({ role: m.role, content: m.content }));
-  let link = null, linkler = null, ekran = null;
-  for (let adim = 0; adim < 6; adim++) {
+  let link = null, linkler = null, ekran = null, aracSayisi = 0, uyarildi = false;
+  for (let adim = 0; adim < 7; adim++) {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -2796,7 +2867,11 @@ async function ajanClaude(env, sistem, son) {
     const j = await r.json();
     const kullanimlar = (j.content || []).filter((b) => b.type === "tool_use");
     const yazi = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-    if (!kullanimlar.length) return { cevap: yazi, link, linkler, ekran };
+    if (!kullanimlar.length) {
+      if (!uyarildi && sahteMi(yazi, aracSayisi)) { uyarildi = true; mesajlar.push({ role: "assistant", content: yazi || "..." }, { role: "user", content: DURUST_UYARI }); continue; }
+      return { cevap: yazi, link, linkler, ekran };
+    }
+    aracSayisi += kullanimlar.length;
     mesajlar.push({ role: "assistant", content: j.content });
     const sonuclar = [];
     for (const u of kullanimlar) {
@@ -3023,8 +3098,8 @@ export default {
     if (request.method === "GET" && rm) {
       if (url.searchParams.get("t") !== (await videoImza(env, "rapor-" + rm[1]))) return new Response("Yetkisiz", { status: 401 });
       let md;
-      try { md = await digerDosya(env, SABLON_REPO, "nisler/" + rm[1] + ".md"); } catch (e) { return new Response("Rapor bulunamadi", { status: 404 }); }
-      return new Response(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Niş Analizi</title>
+      try { md = await digerDosya(env, SABLON_REPO, (rm[1].startsWith("ar-") ? "arastirmalar/" : "nisler/") + rm[1] + ".md"); } catch (e) { return new Response("Rapor bulunamadi", { status: 404 }); }
+      return new Response(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis Rapor</title>
 <style>body{margin:0;background:#02070d;color:#cffafe;font:16px/1.65 system-ui,sans-serif;padding:20px max(16px,env(safe-area-inset-left))}main{max-width:760px;margin:0 auto}
 h1{color:#22d3ee;font-size:26px;letter-spacing:.04em}h2{color:#22d3ee;border-bottom:1px solid #155e75;padding-bottom:6px;margin-top:34px}h3{color:#67e8f9;margin-top:24px}
 a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px solid #155e75;border-radius:8px;padding:12px;overflow-x:auto;font-size:13px}code{background:#061824;padding:1px 5px;border-radius:4px}</style></head>
@@ -3127,7 +3202,7 @@ a{color:#67e8f9}b{color:#fff}li{margin:4px 0}pre{background:#061824;border:1px s
     }
     if (request.method === "GET" && (url.pathname === "/bildirimler" || url.pathname === "/sabah")) {
       if (!env.APP_SECRET || request.headers.get("x-secret") !== env.APP_SECRET) return new Response("Yetkisiz", { status: 401 });
-      if (url.pathname === "/bildirimler") { ctx.waitUntil(indirKontrol(env).catch(() => {})); ctx.waitUntil(stilKontrol(env).catch(() => {})); ctx.waitUntil(nisKontrol(env).catch(() => {})); }
+      if (url.pathname === "/bildirimler") { ctx.waitUntil(indirKontrol(env).catch(() => {})); ctx.waitUntil(stilKontrol(env).catch(() => {})); ctx.waitUntil(nisKontrol(env).catch(() => {})); ctx.waitUntil(arastirmaKontrol(env).catch(() => {})); }
       if (url.pathname === "/sabah") { await uykuKaydet(env, "kalk").catch(() => {}); return Response.json(await sabahOzeti(env)); }
       const son = parseInt(url.searchParams.get("son") || "0");
       return Response.json({ bildirimler: (await kvOku(env, "bildirimler", [])).filter((b) => b.zaman > son), simdi: Date.now() });

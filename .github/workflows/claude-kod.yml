@@ -65,5 +65,13 @@ jobs:
           else DEGISTI=hayir; fi
           STAT=$(git show --stat --format= HEAD 2>/dev/null | tail -1)
           python3 -c "import json,sys;json.dump({'run':${{ github.run_number }},'dal':'$DAL','degisti':'$DEGISTI','ozet':open('/tmp/ozet.txt').read() if __import__('os').path.exists('/tmp/ozet.txt') else 'Ozet yok.','stat':sys.argv[1]},open('/tmp/kod.json','w'),ensure_ascii=False)" "$STAT"
-          git stash -u -q 2>/dev/null; git switch -q --orphan kod-log; git rm -rq --cached . 2>/dev/null
-          cp /tmp/kod.json kod.json; git add kod.json; git commit -qm "kod ${{ github.run_number }}"; git push -qf origin kod-log
+          # kod-log dalina API ile yaz (git dal degistirme yok -> exit 128 olmaz)
+          R="${{ github.repository }}"
+          SHA=$(gh api "repos/$R/contents/kod.json?ref=kod-log" --jq .sha 2>/dev/null)
+          if ! gh api "repos/$R/branches/kod-log" >/dev/null 2>&1; then
+            MAIN=$(gh api "repos/$R/git/ref/heads/main" --jq .object.sha)
+            gh api -X POST "repos/$R/git/refs" -f ref=refs/heads/kod-log -f sha="$MAIN" >/dev/null; SHA=$(gh api "repos/$R/contents/kod.json?ref=kod-log" --jq .sha 2>/dev/null)
+          fi
+          gh api -X PUT "repos/$R/contents/kod.json" -f message="kod ${{ github.run_number }}" -f branch=kod-log \
+            -f content="$(base64 -w0 /tmp/kod.json)" ${SHA:+-f sha="$SHA"} >/dev/null && echo "kod.json yazildi"
+          exit 0
