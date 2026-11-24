@@ -313,3 +313,6 @@
 {"z":1795152645364,"eren":"","jarvis":"Efendim?","kaynak":"canli","puan":0}
 {"z":1795152655956,"eren":"papa","jarvis":"Anlamadım Eren, \"papa\" mı dedin? Ne demek istemiştin? Başka bir konuyla mı ilgili?","kaynak":"canli","puan":0}
 {"z":1795152664849,"eren":"Uyandım.","jarvis":"Günaydın Eren! Erken uyanmışsın, hayırdır? Bugün ne yapıyoruz, bir planın var mı? Yoksa biraz daha dinlenecek misin?","kaynak":"canli","puan":0}
+{"z":1795413131333,"eren":"","jarvis":"Efendim Eren?","kaynak":"canli","puan":0}
+{"z":1795413178845,"eren":"Sus","jarvis":"Tamam, sessiz kalıyorum. İhtiyacın olunca söyle.","kaynak":"gpt-oss","puan":0}
+{"z":1795413185555,"eren":"Sus","jarvis":"Tamam, sustum. Dinlenmene bak.","kaynak":"gpt-oss","puan":0}
